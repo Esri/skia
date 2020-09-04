@@ -630,6 +630,114 @@ project "skia"
     -- -------------------------------------------------------------
   end
 
+  if (_PLATFORM_COCOA) then
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa*" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa*" }
+
+      files {
+        common_cocoa,
+      }
+
+      includedirs {
+        "include/utils/mac",
+      }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_arm64_debug" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_arm64_debug.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_arm64_debug" }
+
+      files { opts_arm64 }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_arm64_release" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_arm64_release.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_arm64_release" }
+
+      files { opts_arm64 }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_sim64_debug" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_sim64_debug.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_sim64_debug" }
+
+      files { opts_sse }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_sim64_release" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_sim64_release.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_sim64_release" }
+
+      files { opts_sse }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_x64_debug" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_x64_debug.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_x64_debug" }
+
+      files { opts_sse }
+
+    -- -------------------------------------------------------------
+    -- configuration { "cocoa_x64_release" }
+    -- -------------------------------------------------------------
+
+    -- common configuration settings
+
+    dofile (_BUILD_DIR .. "/static_cocoa_x64_release.lua")
+
+    -- project specific configuration settings
+
+    configuration { "cocoa_x64_release" }
+
+      files { opts_sse }
+
+    -- -------------------------------------------------------------
+  end
+
   if (_PLATFORM_IOS) then
     -- -------------------------------------------------------------
     -- configuration { "ios*" }

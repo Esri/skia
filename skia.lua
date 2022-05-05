@@ -488,8 +488,15 @@ if (_PLATFORM_MACOS) then
 
   files {
     common_cocoa,
-    opts_sse,
   }
+
+  configuration { "*arm64*" }
+
+  files { opts_arm64 }
+
+  configuration { "*x64*" }
+
+  files { opts_sse }
 end
 
 if (_PLATFORM_WINDOWS) then

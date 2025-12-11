@@ -18,6 +18,7 @@
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 #include "include/effects/SkGradientShader.h"
+#include "include/private/base/SkFloatingPoint.h"
 
 constexpr SkColor gColors[] = {
     SK_ColorRED, SK_ColorYELLOW
@@ -62,16 +63,16 @@ constexpr SkScalar TESTGRID_Y = SkIntToScalar(200);
 constexpr int IMAGES_X = 4;             // number of images per row
 
 static sk_sp<SkShader> make_linear_gradient(const SkPoint pts[2], const SkMatrix& localMatrix) {
-    return SkGradientShader::MakeLinear(pts, gColors, nullptr, SK_ARRAY_COUNT(gColors),
+    return SkGradientShader::MakeLinear(pts, gColors, nullptr, std::size(gColors),
                                         SkTileMode::kClamp, 0, &localMatrix);
 }
 
 static sk_sp<SkShader> make_radial_gradient(const SkPoint pts[2], const SkMatrix& localMatrix) {
     SkPoint center;
-    center.set(SkScalarAve(pts[0].fX, pts[1].fX),
-               SkScalarAve(pts[0].fY, pts[1].fY));
+    center.set(sk_float_midpoint(pts[0].fX, pts[1].fX),
+               sk_float_midpoint(pts[0].fY, pts[1].fY));
     float radius = (center - pts[0]).length();
-    return SkGradientShader::MakeRadial(center, radius, gColors, nullptr, SK_ARRAY_COUNT(gColors),
+    return SkGradientShader::MakeRadial(center, radius, gColors, nullptr, std::size(gColors),
                                         SkTileMode::kClamp, 0, &localMatrix);
 }
 
@@ -110,10 +111,10 @@ static void draw_gradients(SkCanvas* canvas,
 
 DEF_SIMPLE_GM_BG(gradient_matrix, canvas, 800, 800, 0xFFDDDDDD) {
         draw_gradients(canvas, &make_linear_gradient,
-                      linearPts, SK_ARRAY_COUNT(linearPts));
+                      linearPts, std::size(linearPts));
 
         canvas->translate(0, TESTGRID_Y);
 
         draw_gradients(canvas, &make_radial_gradient,
-                      radialPts, SK_ARRAY_COUNT(radialPts));
+                      radialPts, std::size(radialPts));
 }

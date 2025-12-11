@@ -30,10 +30,10 @@ struct DashExample {
     int* pattern;
     int length;
 } dashExamples[] = {
-    { dash1, SK_ARRAY_COUNT(dash1) },
-    { dash2, SK_ARRAY_COUNT(dash2) },
-    { dash3, SK_ARRAY_COUNT(dash3) },
-    { dash4, SK_ARRAY_COUNT(dash4) }
+    { dash1, std::size(dash1) },
+    { dash2, std::size(dash2) },
+    { dash3, std::size(dash3) },
+    { dash4, std::size(dash4) }
 };
 
 
@@ -42,9 +42,9 @@ public:
     DashCircleGM() : fRotation(0) { }
 
 protected:
-    SkString onShortName() override { return SkString("dashcircle"); }
+    SkString getName() const override { return SkString("dashcircle"); }
 
-    SkISize onISize() override { return SkISize::Make(900, 1200); }
+    SkISize getISize() override { return SkISize::Make(900, 1200); }
 
     void onDraw(SkCanvas* canvas) override {
         SkPaint refPaint;
@@ -92,7 +92,7 @@ protected:
                 for (int index = 0; index < dashExample.length; ++index) {
                     intervals[index] = dashExample.pattern[index] * dashLength;
                 }
-                p.setPathEffect(SkDashPathEffect::Make(intervals, intervalCount, 0));
+                p.setPathEffect(SkDashPathEffect::Make({intervals, intervalCount}, 0));
                 canvas->save();
                 canvas->rotate(fRotation);
                 canvas->drawPath(circle, p);
@@ -124,9 +124,9 @@ public:
     DashCircle2GM() {}
 
 protected:
-    SkString onShortName() override { return SkString("dashcircle2"); }
+    SkString getName() const override { return SkString("dashcircle2"); }
 
-    SkISize onISize() override { return SkISize::Make(635, 900); }
+    SkISize getISize() override { return SkISize::Make(635, 900); }
 
     void onDraw(SkCanvas* canvas) override {
         // These intervals are defined relative to tau.
@@ -143,7 +143,7 @@ protected:
                 {0.1f  , 1.1f  }, // off is > 1*/
         };
 
-        static constexpr int kN = SK_ARRAY_COUNT(kIntervals);
+        static constexpr int kN = std::size(kIntervals);
         static constexpr SkScalar kRadius = 20.f;
         static constexpr SkScalar kStrokeWidth = 15.f;
         static constexpr SkScalar kPad = 5.f;
@@ -154,20 +154,20 @@ protected:
                                                 kThinRadius,  kThinRadius};
         static constexpr SkScalar kThinStrokeWidth = 0.4f;
 
-        sk_sp<SkPathEffect> deffects[SK_ARRAY_COUNT(kIntervals)];
-        sk_sp<SkPathEffect> thinDEffects[SK_ARRAY_COUNT(kIntervals)];
+        sk_sp<SkPathEffect> deffects[std::size(kIntervals)];
+        sk_sp<SkPathEffect> thinDEffects[std::size(kIntervals)];
         for (int i = 0; i < kN; ++i) {
             static constexpr SkScalar kTau = 2 * SK_ScalarPI;
             static constexpr SkScalar kCircumference = kRadius * kTau;
             SkScalar scaledIntervals[2] = {kCircumference * kIntervals[i][0],
                                            kCircumference * kIntervals[i][1]};
             deffects[i] = SkDashPathEffect::Make(
-                    scaledIntervals, 2, kCircumference * fPhaseDegrees * kTau / 360.f);
+                    scaledIntervals, kCircumference * fPhaseDegrees * kTau / 360.f);
             static constexpr SkScalar kThinCircumference = kThinRadius * kTau;
             scaledIntervals[0] = kThinCircumference * kIntervals[i][0];
             scaledIntervals[1] = kThinCircumference * kIntervals[i][1];
             thinDEffects[i] = SkDashPathEffect::Make(
-                    scaledIntervals, 2, kThinCircumference * fPhaseDegrees * kTau / 360.f);
+                    scaledIntervals, kThinCircumference * fPhaseDegrees * kTau / 360.f);
         }
 
         SkMatrix rotate;
@@ -201,7 +201,7 @@ protected:
 
         canvas->save();
         canvas->translate(-bounds.fLeft + kPad, -bounds.fTop + kPad);
-        for (size_t i = 0; i < SK_ARRAY_COUNT(deffects); ++i) {
+        for (size_t i = 0; i < std::size(deffects); ++i) {
             canvas->save();
             for (const auto& m : kMatrices) {
                 canvas->save();
@@ -245,7 +245,7 @@ DEF_SIMPLE_GM(maddash, canvas, 1600, 1600) {
     p.setStrokeWidth(380);
 
     SkScalar intvls[] = { 2.5, 10 /* 1200 */ };
-    p.setPathEffect(SkDashPathEffect::Make(intvls, 2, 0));
+    p.setPathEffect(SkDashPathEffect::Make(intvls, 0));
 
     canvas->drawCircle(400, 400, 200, p);
 

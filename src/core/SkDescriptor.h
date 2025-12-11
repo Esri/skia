@@ -8,12 +8,19 @@
 #ifndef SkDescriptor_DEFINED
 #define SkDescriptor_DEFINED
 
-#include <memory>
-#include <new>
-
-#include "include/private/SkMacros.h"
-#include "include/private/SkNoncopyable.h"
+#include "include/core/SkString.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkNoncopyable.h"
 #include "src/core/SkScalerContext.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+
+class SkReadBuffer;
+class SkWriteBuffer;
 
 class SkDescriptor : SkNoncopyable {
 public:
@@ -29,6 +36,8 @@ public:
     void operator delete(void* p);
     void* operator new(size_t);
     void* operator new(size_t, void* p) { return p; }
+
+    void flatten(SkWriteBuffer& buffer) const;
 
     uint32_t getLength() const { return fLength; }
     void* addEntry(uint32_t tag, size_t length, const void* data = nullptr);
@@ -59,9 +68,7 @@ public:
         uint32_t fLen;
     };
 
-#ifdef SK_DEBUG
     uint32_t getCount() const { return fCount; }
-#endif
 
     SkString dumpRec() const;
 
@@ -86,8 +93,10 @@ public:
     SkAutoDescriptor& operator=(const SkAutoDescriptor&);
     SkAutoDescriptor(SkAutoDescriptor&&);
     SkAutoDescriptor& operator=(SkAutoDescriptor&&);
-
     ~SkAutoDescriptor();
+
+    // Returns no value if there is an error.
+    static std::optional<SkAutoDescriptor> MakeFromBuffer(SkReadBuffer& buffer);
 
     void reset(size_t size);
     void reset(const SkDescriptor& desc);

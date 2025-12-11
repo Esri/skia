@@ -10,6 +10,7 @@ is_skia_standalone = true
 declare_args() {
   is_official_build = false
   is_component_build = false
+  use_libfuzzer = false
   ndk = ""
 
   # Android 5.0, Lollipop
@@ -31,9 +32,18 @@ declare_args() {
   clang_win_version = ""
 
   ios_min_target = ""
+  ios_use_simulator =
+      target_os == "ios" && (target_cpu == "x86" || target_cpu == "x64")
+
+  # Enable -H, which prints the include tree during compilation.
+  # For use by external tools for analyzing include files.
+  show_includes = false
 }
 declare_args() {
   is_debug = !is_official_build
+
+  # This affects Skia's ABI; must be set consistently for Skia and dependents.
+  is_trivial_abi = false
 }
 
 assert(!(is_debug && is_official_build))
@@ -54,12 +64,15 @@ if (current_os == "") {
 }
 
 is_android = current_os == "android"
-is_fuchsia = current_os == "fuchsia"
 is_ios = current_os == "ios" || current_os == "tvos"
 is_tvos = current_os == "tvos"
 is_linux = current_os == "linux"
 is_mac = current_os == "mac"
+is_wasm = current_os == "wasm"
 is_win = current_os == "win"
+
+# Dawn has references to fuchsia, but Skia's GN rules do not
+is_fuchsia = false
 
 # This is just to make the Dawn build files happy. Skia itself uses target_os = "linux"
 # for ChromeOS, so this variable will not affect Skia proper.
@@ -81,7 +94,7 @@ if (current_cpu == "") {
   current_cpu = target_cpu
 }
 
-is_clang = is_android || is_ios || is_mac || is_fuchsia ||
+is_clang = is_android || is_ios || is_mac || is_wasm ||
            (cc == "clang" && cxx == "clang++") || clang_win != ""
 if (!is_clang && !is_win) {
   is_clang = exec_script("//gn/is_clang.py",
@@ -95,7 +108,6 @@ if (!is_clang && !is_win) {
 if (is_android) {
   ndk_host = ""
   ndk_target = ""
-  ndk_gdbserver = ""
 
   if (host_os == "linux") {
     ndk_host = "linux-x86_64"
@@ -107,16 +119,12 @@ if (is_android) {
 
   if (target_cpu == "arm64") {
     ndk_target = "aarch64-linux-android"
-    ndk_gdbserver = "prebuilt/android-arm64/gdbserver/gdbserver"
   } else if (target_cpu == "arm") {
     ndk_target = "armv7a-linux-androideabi"
-    ndk_gdbserver = "prebuilt/android-arm/gdbserver/gdbserver"
   } else if (target_cpu == "x64") {
     ndk_target = "x86_64-linux-android"
-    ndk_gdbserver = "prebuilt/android-x86_64/gdbserver/gdbserver"
   } else if (target_cpu == "x86") {
     ndk_target = "i686-linux-android"
-    ndk_gdbserver = "prebuilt/android-x86/gdbserver/gdbserver"
   }
 }
 
@@ -152,7 +160,7 @@ if (target_os == "win") {
     clang_win_version = exec_script("//gn/highest_version_dir.py",
                                     [
                                       "$clang_win/lib/clang",
-                                      "[0-9]+\.[0-9]+\.[0-9]+",
+                                      "[0-9]+(\.[0-9]+\.[0-9]+)?",
                                     ],
                                     "trim string")
   }
@@ -175,12 +183,16 @@ default_configs = [
   "//gn/skia:default",
   "//gn/skia:no_exceptions",
   "//gn/skia:no_rtti",
+  "//gn/skia:strict_aliasing",
 ]
 if (!is_debug) {
   default_configs += [
     "//gn/skia:optimize",
     "//gn/skia:NDEBUG",
   ]
+}
+if (is_trivial_abi) {
+  default_configs += [ "//gn/skia:trivial_abi" ]
 }
 if (!is_official_build) {
   default_configs += [ "//gn/skia:debug_symbols" ]
@@ -225,7 +237,11 @@ if (is_win) {
   # Windows tool chain
   set_default_toolchain("//gn/toolchain:msvc")
   default_toolchain_name = "msvc"
-  host_toolchain = "msvc"
+  host_toolchain = "msvc_host"
+} else if (is_wasm) {
+  set_default_toolchain("//gn/toolchain:wasm")
+  default_toolchain_name = "wasm"
+  host_toolchain = "wasm"
 } else {
   # GCC-like toolchains, including Clang.
   set_default_toolchain("//gn/toolchain:gcc_like")

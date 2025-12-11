@@ -8,9 +8,11 @@
 #include "bench/Benchmark.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkString.h"
-#include "include/private/SkTemplates.h"
-#include "include/utils/SkRandom.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkRTree.h"
+
+using namespace skia_private;
 
 // confine rectangles to a smallish area, so queries generally hit something, and overlap occurs:
 static const SkScalar GENERATE_EXTENTS = 1000.0f;
@@ -28,7 +30,7 @@ public:
     }
 
     bool isSuitableFor(Backend backend) override {
-        return backend == kNonRendering_Backend;
+        return backend == Backend::kNonRendering;
     }
 
 protected:
@@ -37,15 +39,14 @@ protected:
     }
     void onDraw(int loops, SkCanvas* canvas) override {
         SkRandom rand;
-        SkAutoTMalloc<SkRect> rects(NUM_BUILD_RECTS);
+        AutoTArray<SkRect> rects(NUM_BUILD_RECTS);
         for (int i = 0; i < NUM_BUILD_RECTS; ++i) {
             rects[i] = fProc(rand, i, NUM_BUILD_RECTS);
         }
 
         for (int i = 0; i < loops; ++i) {
             SkRTree tree;
-            tree.insert(rects.get(), NUM_BUILD_RECTS);
-            SkASSERT(rects != nullptr);  // It'd break this bench if the tree took ownership of rects.
+            tree.insert(rects.data(), NUM_BUILD_RECTS);
         }
     }
 private:
@@ -62,7 +63,7 @@ public:
     }
 
     bool isSuitableFor(Backend backend) override {
-        return backend == kNonRendering_Backend;
+        return backend == Backend::kNonRendering;
     }
 protected:
     const char* onGetName() override {
@@ -70,11 +71,11 @@ protected:
     }
     void onDelayedSetup() override {
         SkRandom rand;
-        SkAutoTMalloc<SkRect> rects(NUM_QUERY_RECTS);
+        AutoTArray<SkRect> rects(NUM_QUERY_RECTS);
         for (int i = 0; i < NUM_QUERY_RECTS; ++i) {
             rects[i] = fProc(rand, i, NUM_QUERY_RECTS);
         }
-        fTree.insert(rects.get(), NUM_QUERY_RECTS);
+        fTree.insert(rects.data(), NUM_QUERY_RECTS);
     }
 
     void onDraw(int loops, SkCanvas* canvas) override {
@@ -128,12 +129,12 @@ static inline SkRect make_concentric_rects(SkRandom&, int index, int numRects) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-DEF_BENCH(return new RTreeBuildBench("XY", &make_XYordered_rects));
-DEF_BENCH(return new RTreeBuildBench("YX", &make_YXordered_rects));
-DEF_BENCH(return new RTreeBuildBench("random", &make_random_rects));
-DEF_BENCH(return new RTreeBuildBench("concentric", &make_concentric_rects));
+DEF_BENCH(return new RTreeBuildBench("XY", &make_XYordered_rects))
+DEF_BENCH(return new RTreeBuildBench("YX", &make_YXordered_rects))
+DEF_BENCH(return new RTreeBuildBench("random", &make_random_rects))
+DEF_BENCH(return new RTreeBuildBench("concentric", &make_concentric_rects))
 
-DEF_BENCH(return new RTreeQueryBench("XY", &make_XYordered_rects));
-DEF_BENCH(return new RTreeQueryBench("YX", &make_YXordered_rects));
-DEF_BENCH(return new RTreeQueryBench("random", &make_random_rects));
-DEF_BENCH(return new RTreeQueryBench("concentric", &make_concentric_rects));
+DEF_BENCH(return new RTreeQueryBench("XY", &make_XYordered_rects))
+DEF_BENCH(return new RTreeQueryBench("YX", &make_YXordered_rects))
+DEF_BENCH(return new RTreeQueryBench("random", &make_random_rects))
+DEF_BENCH(return new RTreeQueryBench("concentric", &make_concentric_rects))

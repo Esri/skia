@@ -7,10 +7,17 @@
 #ifndef PathOpsTestCommon_DEFINED
 #define PathOpsTestCommon_DEFINED
 
-#include "include/private/SkTArray.h"
-#include "src/pathops/SkPathOpsQuad.h"
+#include "include/core/SkScalar.h"
+#include "include/private/base/SkTArray.h"
+#include "src/pathops/SkPathOpsPoint.h"
 
+class SkPath;
+struct SkDConic;
+struct SkDCubic;
+struct SkDLine;
+struct SkDQuad;
 struct SkPathOpsBounds;
+struct SkPoint;
 
 struct QuadPts {
     static const int kPointCount = 3;
@@ -27,9 +34,10 @@ struct CubicPts {
     SkDPoint fPts[kPointCount];
 };
 
-void CubicPathToQuads(const SkPath& cubicPath, SkPath* quadPath);
-void CubicPathToSimple(const SkPath& cubicPath, SkPath* simplePath);
-void CubicToQuads(const SkDCubic& cubic, double precision, SkTArray<SkDQuad, true>& quads);
+SkPath CubicPathToQuads(const SkPath& cubicPath);
+SkPath CubicPathToSimple(const SkPath& cubicPath);
+void CubicToQuads(
+        const SkDCubic& cubic, double precision, skia_private::TArray<SkDQuad, true>& quads);
 bool ValidBounds(const SkPathOpsBounds& );
 bool ValidConic(const SkDConic& cubic);
 bool ValidCubic(const SkDCubic& cubic);

@@ -8,6 +8,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkRRect.h"
 #include "include/utils/SkShadowUtils.h"
 #include "src/core/SkDrawShadowInfo.h"
 
@@ -50,7 +51,7 @@ protected:
         for (int x = kRRSpace; x < kWidth - kRRStep; x += kRRStep) {
             for (int y = kRRSpace; y < kHeight - kRRStep; y += kRRStep) {
                 SkRect rect = SkRect::MakeXYWH(x, y, kRRSize, kRRSize);
-                fRRects[i].addRRect(SkRRect::MakeRectXY(rect, kRRRadius, kRRRadius));
+                fRRects[i] = SkPath::RRect(SkRRect::MakeRectXY(rect, kRRRadius, kRRRadius));
                 ++i;
             }
         }

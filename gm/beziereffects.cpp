@@ -20,33 +20,34 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrRecordingContext.h"
-#include "include/private/GrTypesPriv.h"
-#include "include/private/SkColorData.h"
-#include "include/utils/SkRandom.h"
+#include "include/gpu/ganesh/GrRecordingContext.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkCanvasPriv.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPointPriv.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGeometryProcessor.h"
-#include "src/gpu/GrMemoryPool.h"
-#include "src/gpu/GrOpFlushState.h"
-#include "src/gpu/GrOpsRenderPass.h"
-#include "src/gpu/GrPaint.h"
-#include "src/gpu/GrProcessorAnalysis.h"
-#include "src/gpu/GrProcessorSet.h"
-#include "src/gpu/GrProgramInfo.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrUserStencilSettings.h"
-#include "src/gpu/effects/GrBezierEffect.h"
-#include "src/gpu/effects/GrPorterDuffXferProcessor.h"
-#include "src/gpu/geometry/GrPathUtils.h"
-#include "src/gpu/ops/GrDrawOp.h"
-#include "src/gpu/ops/GrMeshDrawOp.h"
-#include "src/gpu/ops/GrOp.h"
-#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrCanvas.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGeometryProcessor.h"
+#include "src/gpu/ganesh/GrMemoryPool.h"
+#include "src/gpu/ganesh/GrOpFlushState.h"
+#include "src/gpu/ganesh/GrOpsRenderPass.h"
+#include "src/gpu/ganesh/GrPaint.h"
+#include "src/gpu/ganesh/GrProcessorAnalysis.h"
+#include "src/gpu/ganesh/GrProcessorSet.h"
+#include "src/gpu/ganesh/GrProgramInfo.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrUserStencilSettings.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
+#include "src/gpu/ganesh/effects/GrBezierEffect.h"
+#include "src/gpu/ganesh/effects/GrPorterDuffXferProcessor.h"
+#include "src/gpu/ganesh/geometry/GrPathUtils.h"
+#include "src/gpu/ganesh/ops/GrDrawOp.h"
+#include "src/gpu/ganesh/ops/GrMeshDrawOp.h"
+#include "src/gpu/ganesh/ops/GrOp.h"
+#include "src/gpu/ganesh/ops/GrSimpleMeshDrawOpHelper.h"
 
 #include <memory>
 #include <utility>
@@ -190,7 +191,8 @@ private:
         SkPointPriv::SetRectTriStrip(&verts[0].fPosition, rect, sizeof(Vertex));
         for (int v = 0; v < 4; ++v) {
             SkPoint3 pt3 = {verts[v].fPosition.x(), verts[v].fPosition.y(), 1.f};
-            fKLM.mapHomogeneousPoints((SkPoint3* ) verts[v].fKLM, &pt3, 1);
+            fKLM.mapHomogeneousPoints({(SkPoint3* ) verts[v].fKLM, 1},
+                                      {&pt3, 1});
         }
 
         fMesh = helper.mesh();
@@ -219,16 +221,12 @@ protected:
     static const int kCellWidth = 128;
     static const int kCellHeight = 128;
 
-    SkString onShortName() override {
-        return SkString("bezier_conic_effects");
-    }
+    SkString getName() const override { return SkString("bezier_conic_effects"); }
 
-    SkISize onISize() override {
-        return SkISize::Make(kCellWidth, kNumConics*kCellHeight);
-    }
+    SkISize getISize() override { return SkISize::Make(kCellWidth, kNumConics * kCellHeight); }
 
     DrawResult onDraw(GrRecordingContext* rContext, SkCanvas* canvas, SkString* errorMsg) override {
-        auto sdc = SkCanvasPriv::TopDeviceSurfaceDrawContext(canvas);
+        auto sdc = skgpu::ganesh::TopDeviceSurfaceDrawContext(canvas);
         if (!sdc) {
             *errorMsg = kErrorMsg_DrawSkippedGpuOnly;
             return DrawResult::kSkip;
@@ -282,7 +280,7 @@ protected:
                 canvas->drawCircle(controlPts[i], 6.f, ctrlPtPaint);
             }
 
-            canvas->drawPoints(SkCanvas::kPolygon_PointMode, 3, controlPts, polyPaint);
+            canvas->drawPoints(SkCanvas::kPolygon_PointMode, controlPts, polyPaint);
 
             SkConic dst[4];
             SkMatrix klm;
@@ -290,18 +288,14 @@ protected:
             GrPathUtils::getConicKLM(controlPts, weights[row], &klm);
 
             for (int c = 0; c < cnt; ++c) {
-                SkPoint* pts = dst[c].fPts;
-                for (int i = 0; i < 3; ++i) {
-                    canvas->drawCircle(pts[i], 3.f, choppedPtPaint);
+                for (auto p : dst[c].fPts) {
+                    canvas->drawCircle(p, 3.f, choppedPtPaint);
                 }
 
-                SkRect bounds;
-                bounds.setBounds(pts, 3);
-
+                const auto bounds = SkRect::BoundsOrEmpty(dst[c].fPts);
                 canvas->drawRect(bounds, boundsPaint);
 
-                GrOp::Owner op = BezierConicTestOp::Make(rContext, bounds,
-                                                         kOpaqueBlack, klm);
+                GrOp::Owner op = BezierConicTestOp::Make(rContext, bounds, kOpaqueBlack, klm);
                 sdc->addDrawOp(std::move(op));
             }
         }
@@ -425,16 +419,12 @@ protected:
     static const int kCellWidth = 128;
     static const int kCellHeight = 128;
 
-    SkString onShortName() override {
-        return SkString("bezier_quad_effects");
-    }
+    SkString getName() const override { return SkString("bezier_quad_effects"); }
 
-    SkISize onISize() override {
-        return SkISize::Make(kCellWidth, kNumQuads*kCellHeight);
-    }
+    SkISize getISize() override { return SkISize::Make(kCellWidth, kNumQuads * kCellHeight); }
 
     DrawResult onDraw(GrRecordingContext* rContext, SkCanvas* canvas, SkString* errorMsg) override {
-        auto sdc = SkCanvasPriv::TopDeviceSurfaceDrawContext(canvas);
+        auto sdc = skgpu::ganesh::TopDeviceSurfaceDrawContext(canvas);
         if (!sdc) {
             *errorMsg = kErrorMsg_DrawSkippedGpuOnly;
             return DrawResult::kSkip;
@@ -480,7 +470,7 @@ protected:
                 canvas->drawCircle(controlPts[i], 6.f, ctrlPtPaint);
             }
 
-            canvas->drawPoints(SkCanvas::kPolygon_PointMode, 3, controlPts, polyPaint);
+            canvas->drawPoints(SkCanvas::kPolygon_PointMode, controlPts, polyPaint);
 
             SkPoint chopped[5];
             int cnt = SkChopQuadAtMaxCurvature(controlPts, chopped);
@@ -492,8 +482,7 @@ protected:
                     canvas->drawCircle(pts[i], 3.f, choppedPtPaint);
                 }
 
-                SkRect bounds;
-                bounds.setBounds(pts, 3);
+                const auto bounds = SkRect::BoundsOrEmpty({pts, 3});
 
                 canvas->drawRect(bounds, boundsPaint);
 

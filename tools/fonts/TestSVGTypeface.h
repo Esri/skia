@@ -21,9 +21,9 @@
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
 #include "include/pathops/SkPathOps.h"
-#include "include/private/SkMutex.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTHash.h"
+#include "include/private/base/SkMutex.h"
+#include "include/private/base/SkTArray.h"
+#include "src/core/SkTHash.h"
 
 #include <memory>
 
@@ -51,13 +51,8 @@ struct SkSVGTestTypefaceGlyphData {
 
 class TestSVGTypeface : public SkTypeface {
 public:
-    TestSVGTypeface(const char*                              name,
-                    int                                      upem,
-                    const SkFontMetrics&                     metrics,
-                    SkSpan<const SkSVGTestTypefaceGlyphData> data,
-                    const SkFontStyle&                       style);
     ~TestSVGTypeface() override;
-    void getAdvance(SkGlyph* glyph) const;
+    SkVector getAdvance(SkGlyphID) const;
     void getFontMetrics(SkFontMetrics* metrics) const;
 
     static sk_sp<TestSVGTypeface> Default();
@@ -75,28 +70,27 @@ public:
     };
     struct GlyfInfo {
         GlyfInfo() : fBounds(SkIRect::MakeEmpty()) {}
-        SkIRect                 fBounds;
-        SkTArray<GlyfLayerInfo> fLayers;
+        SkIRect                             fBounds;
+        skia_private::TArray<GlyfLayerInfo> fLayers;
     };
 
 protected:
-    void exportTtxCommon(SkWStream*, const char* type, const SkTArray<GlyfInfo>* = nullptr) const;
+    void exportTtxCommon(
+            SkWStream*, const char* type, const skia_private::TArray<GlyfInfo>* = nullptr) const;
 
     std::unique_ptr<SkScalerContext> onCreateScalerContext(const SkScalerContextEffects&,
                                                            const SkDescriptor* desc) const override;
     void onFilterRec(SkScalerContextRec* rec) const override;
-    void getGlyphToUnicodeMap(SkUnichar*) const override;
+    void getGlyphToUnicodeMap(SkSpan<SkUnichar>) const override;
     std::unique_ptr<SkAdvancedTypefaceMetrics> onGetAdvancedMetrics() const override;
-
-    std::unique_ptr<SkStreamAsset> onOpenStream(int* ttcIndex) const override { return nullptr; }
 
     sk_sp<SkTypeface> onMakeClone(const SkFontArguments& args) const override {
         return sk_ref_sp(this);
     }
 
-    void onGetFontDescriptor(SkFontDescriptor* desc, bool* isLocal) const override;
+    void onGetFontDescriptor(SkFontDescriptor* desc, bool* isLocal) const override = 0;
 
-    void onCharsToGlyphs(const SkUnichar* chars, int count, SkGlyphID glyphs[]) const override;
+    void onCharsToGlyphs(SkSpan<const SkUnichar>, SkSpan<SkGlyphID>) const override;
 
     void getPostScriptGlyphNames(SkString*) const override {}
 
@@ -110,17 +104,16 @@ protected:
 
     bool onGlyphMaskNeedsCurrentColor() const override { return false; }
 
-    int onGetVariationDesignPosition(SkFontArguments::VariationPosition::Coordinate coordinates[],
-                                     int coordinateCount) const override {
+    int onGetVariationDesignPosition(
+                         SkSpan<SkFontArguments::VariationPosition::Coordinate>) const override {
         return 0;
     }
 
-    int onGetVariationDesignParameters(SkFontParameters::Variation::Axis parameters[],
-                                       int parameterCount) const override {
+    int onGetVariationDesignParameters(SkSpan<SkFontParameters::Variation::Axis>) const override {
         return 0;
     }
 
-    int onGetTableTags(SkFontTableTag tags[]) const override { return 0; }
+    int onGetTableTags(SkSpan<SkFontTableTag>) const override { return 0; }
 
     size_t onGetTableData(SkFontTableTag tag,
                           size_t         offset,
@@ -130,6 +123,9 @@ protected:
     }
 
 private:
+    TestSVGTypeface(const char* name, const SkFontStyle& style,
+                    int upem, const SkFontMetrics& metrics,
+                    SkSpan<const SkSVGTestTypefaceGlyphData> data);
     struct Glyph {
         Glyph();
         ~Glyph();
@@ -152,12 +148,12 @@ private:
         mutable sk_sp<SkSVGDOM> fSvg;
     };
 
-    SkString                         fName;
-    int                              fUpem;
-    const SkFontMetrics              fFontMetrics;
-    std::unique_ptr<Glyph[]>         fGlyphs;
-    int                              fGlyphCount;
-    SkTHashMap<SkUnichar, SkGlyphID> fCMap;
+    const SkString fName;
+    const int fUpem;
+    const SkFontMetrics fFontMetrics;
+    const std::unique_ptr<Glyph[]> fGlyphs;
+    const int fGlyphCount;
+    skia_private::THashMap<SkUnichar, SkGlyphID> fCMap;
     friend class SkTestSVGScalerContext;
 };
 

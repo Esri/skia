@@ -7,8 +7,8 @@
 
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTFitsIn.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkTFitsIn.h"
+#include "include/private/base/SkTemplates.h"
 #include "src/core/SkOSFile.h"
 
 #include <dirent.h>
@@ -23,6 +23,13 @@
 #ifdef SK_BUILD_FOR_IOS
 #include "src/ports/SkOSFile_ios.h"
 #endif
+
+void sk_fsync(FILE* f) {
+#if !defined(SK_BUILD_FOR_ANDROID) && !defined(__UCLIBC__) && !defined(_NEWLIB_VERSION)
+    int fd = fileno(f);
+    fsync(fd);
+#endif
+}
 
 bool sk_exists(const char *path, SkFILE_Flags flags) {
     int mode = F_OK;
@@ -54,7 +61,7 @@ static bool sk_ino(FILE* a, SkFILEID* id) {
     if (fd < 0) {
         return 0;
     }
-    struct stat status;
+    struct stat status = {};
     if (0 != fstat(fd, &status)) {
         return 0;
     }
@@ -75,7 +82,7 @@ void sk_fmunmap(const void* addr, size_t length) {
 }
 
 void* sk_fdmmap(int fd, size_t* size) {
-    struct stat status;
+    struct stat status = {};
     if (0 != fstat(fd, &status)) {
         return nullptr;
     }
@@ -182,7 +189,7 @@ bool SkOSFile::Iter::next(SkString* name, bool getDir) {
         dirent* entry;
 
         while ((entry = ::readdir(self.fDIR)) != nullptr) {
-            struct stat s;
+            struct stat s = {};
             SkString str(self.fPath);
 
             if (!str.endsWith("/") && !str.endsWith("\\")) {

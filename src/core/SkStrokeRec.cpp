@@ -6,7 +6,11 @@
  */
 
 #include "include/core/SkStrokeRec.h"
+
 #include "src/core/SkPaintDefaults.h"
+#include "src/core/SkStroke.h"
+
+#include <algorithm>
 
 // must be < 0, since ==0 means hairline, and >0 means normal stroke
 #define kStrokeRec_FillStyleWidth     (-SK_Scalar1)
@@ -94,15 +98,13 @@ void SkStrokeRec::setStrokeStyle(SkScalar width, bool strokeAndFill) {
     }
 }
 
-#include "src/core/SkStroke.h"
-
 #ifdef SK_DEBUG
     // enables tweaking these values at runtime from Viewer
     bool gDebugStrokerErrorSet = false;
     SkScalar gDebugStrokerError;
 #endif
 
-bool SkStrokeRec::applyToPath(SkPath* dst, const SkPath& src) const {
+bool SkStrokeRec::applyToPath(SkPathBuilder* dst, const SkPath& src) const {
     if (fWidth <= 0) {  // hairline or fill
         return false;
     }
@@ -153,7 +155,7 @@ SkScalar SkStrokeRec::GetInflationRadius(SkPaint::Join join, SkScalar miterLimit
     } else if (0 == strokeWidth) {
         // FIXME: We need a "matrixScale" parameter here in order to properly handle hairlines.
         // Their with is determined in device space, unlike other strokes.
-        // http://skbug.com/8157
+        // skbug.com/40039419
         return SK_Scalar1;
     }
 

@@ -5,18 +5,24 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkString.h"
 #include "include/utils/SkParsePath.h"
 #include "tests/Test.h"
 
+#include <array>
+#include <cstddef>
+
 static void test_to_from(skiatest::Reporter* reporter, const SkPath& path) {
-    SkString str, str2;
-    SkParsePath::ToSVGString(path, &str);
+    SkString str = SkParsePath::ToSVGString(path);
 
-    SkPath path2;
-    bool success = SkParsePath::FromSVGString(str.c_str(), &path2);
-    REPORTER_ASSERT(reporter, success);
+    auto path2 = SkParsePath::FromSVGString(str.c_str());
+    REPORTER_ASSERT(reporter, path2.has_value());
 
-    SkParsePath::ToSVGString(path2, &str2);
+    SkString str2 = SkParsePath::ToSVGString(*path2);
     REPORTER_ASSERT(reporter, str == str2);
 #if 0 // closed paths are not equal, the iter explicitly gives the closing
       // edge, even if it is not in the path.
@@ -42,51 +48,45 @@ static struct {
 };
 
 DEF_TEST(ParsePath, reporter) {
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gRec); i++) {
-        SkPath  path;
-        bool success = SkParsePath::FromSVGString(gRec[i].fStr, &path);
-        REPORTER_ASSERT(reporter, success);
+    for (size_t i = 0; i < std::size(gRec); i++) {
+        auto path = SkParsePath::FromSVGString(gRec[i].fStr);
+        REPORTER_ASSERT(reporter, path.has_value());
         const SkRect& expectedBounds = gRec[i].fBounds;
-        const SkRect& pathBounds = path.getBounds();
+        const SkRect& pathBounds = path->getBounds();
         REPORTER_ASSERT(reporter, expectedBounds == pathBounds);
 
-        test_to_from(reporter, path);
+        test_to_from(reporter, *path);
     }
 
     SkRect r;
     r.setLTRB(0, 0, 10, 10.5f);
-    SkPath p;
+    SkPathBuilder p;
     p.addRect(r);
-    test_to_from(reporter, p);
+    test_to_from(reporter, p.snapshot());
     p.addOval(r);
-    test_to_from(reporter, p);
-    p.addRoundRect(r, 4, 4.5f);
-    test_to_from(reporter, p);
+    test_to_from(reporter, p.snapshot());
+    p.addRRect(SkRRect::MakeRectXY(r, 4, 4.5f));
+    test_to_from(reporter, p.snapshot());
 }
 
-DEF_TEST(ParsePath_invalid, r) {
-    SkPath path;
-    // This is an invalid SVG string, but the test verifies that we do not
-    // crash.
-    bool success = SkParsePath::FromSVGString("M 5", &path);
-    REPORTER_ASSERT(r, !success);
+static void testInvalidPath(skiatest::Reporter* reporter, const std::string& name,
+                            const std::string& input) {
+    skiatest::ReporterContext subtest(reporter, name);
+    auto path = SkParsePath::FromSVGString(input.c_str());
+    REPORTER_ASSERT(reporter, !path.has_value());
 }
 
-#include "include/utils/SkRandom.h"
-#include "tools/random_parse_path.h"
-
-DEF_TEST(ParsePathRandom, r) {
-    SkRandom rand;
-    for (int index = 0; index < 1000; ++index) {
-        SkPath path, path2;
-        SkString spec;
-        uint32_t count = rand.nextRangeU(0, 10);
-        for (uint32_t i = 0; i < count; ++i) {
-            spec.append(MakeRandomParsePathPiece(&rand));
-        }
-        bool success = SkParsePath::FromSVGString(spec.c_str(), &path);
-        REPORTER_ASSERT(r, success);
-    }
+DEF_TEST(ParsePath_InvalidDoesNotCrash, r) {
+    testInvalidPath(r, "empty move", "M");
+    testInvalidPath(r, "partial move", "M 5");
+    testInvalidPath(r, "partial vertical line", "V"); // oss-fuzz:68723
+    testInvalidPath(r, "partial horizontal line", "H");
+    testInvalidPath(r, "partial cubic", "C 1 2");
+    testInvalidPath(r, "partial continued cubic", "S 6 7");
+    testInvalidPath(r, "partial quad", "Q 3 4 5");
+    testInvalidPath(r, "partial continued quad", "T");
+    testInvalidPath(r, "partial arc", "A 1 2 3 4 5 6");
+    testInvalidPath(r, "partial ~", "~ 7 6 5");
 }
 
 DEF_TEST(ParsePathOptionalCommand, r) {
@@ -121,10 +121,20 @@ DEF_TEST(ParsePathOptionalCommand, r) {
         { "c-1.49.71-2.12 2.5-1.4 4 .71 1.49 2.5 2.12 4 1.4z", 4, 7 },
     };
 
-    SkPath path;
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTests); ++i) {
-        REPORTER_ASSERT(r, SkParsePath::FromSVGString(gTests[i].fStr, &path));
-        REPORTER_ASSERT(r, path.countVerbs() == gTests[i].fVerbs);
-        REPORTER_ASSERT(r, path.countPoints() == gTests[i].fPoints);
+    for (size_t i = 0; i < std::size(gTests); ++i) {
+        auto path = SkParsePath::FromSVGString(gTests[i].fStr);
+        REPORTER_ASSERT(r, path.has_value());
+        REPORTER_ASSERT(r, path->countVerbs() == gTests[i].fVerbs);
+        REPORTER_ASSERT(r, path->countPoints() == gTests[i].fPoints);
     }
+}
+
+DEF_TEST(ParsePathArcFlags, r) {
+    const char* arcs = "M10 10a2.143 2.143 0 100-4.285 2.143 2.143 0 000 4.286";
+    auto path = SkParsePath::FromSVGString(arcs);
+    REPORTER_ASSERT(r, path.has_value());
+    // Arcs decompose to two conics.
+    REPORTER_ASSERT(r, path->countVerbs() == 5);
+    // One for move, 2x per conic.
+    REPORTER_ASSERT(r, path->countPoints() == 9);
 }

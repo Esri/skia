@@ -5,17 +5,33 @@
  * found in the LICENSE file.
  */
 
-#include "include/core/SkPathMeasure.h"
 #include "include/effects/SkTrimPathEffect.h"
-#include "include/private/SkTPin.h"
+
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathEffect.h"
+#include "include/core/SkPathMeasure.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkTPin.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
 #include "src/effects/SkTrimPE.h"
 
+#include <cstddef>
+#include <cstdint>
+
+class SkMatrix;
+class SkPathBuilder;
+class SkStrokeRec;
+struct SkRect;
+
 namespace {
 
 // Returns the number of contours iterated to satisfy the request.
-static size_t add_segments(const SkPath& src, SkScalar start, SkScalar stop, SkPath* dst,
+static size_t add_segments(const SkPath& src, SkScalar start, SkScalar stop, SkPathBuilder* dst,
                            bool requires_moveto = true) {
     SkASSERT(start < stop);
 
@@ -48,7 +64,7 @@ static size_t add_segments(const SkPath& src, SkScalar start, SkScalar stop, SkP
 SkTrimPE::SkTrimPE(SkScalar startT, SkScalar stopT, SkTrimPathEffect::Mode mode)
     : fStartT(startT), fStopT(stopT), fMode(mode) {}
 
-bool SkTrimPE::onFilterPath(SkPath* dst, const SkPath& src, SkStrokeRec*, const SkRect*,
+bool SkTrimPE::onFilterPath(SkPathBuilder* dst, const SkPath& src, SkStrokeRec*, const SkRect*,
                             const SkMatrix&) const {
     if (fStartT >= fStopT) {
         SkASSERT(fMode == SkTrimPathEffect::Mode::kNormal);
@@ -116,7 +132,7 @@ sk_sp<SkFlattenable> SkTrimPE::CreateProc(SkReadBuffer& buffer) {
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 sk_sp<SkPathEffect> SkTrimPathEffect::Make(SkScalar startT, SkScalar stopT, Mode mode) {
-    if (!SkScalarsAreFinite(startT, stopT)) {
+    if (!SkIsFinite(startT, stopT)) {
         return nullptr;
     }
 

@@ -8,19 +8,18 @@
 #include "include/core/SkData.h"
 #include "include/core/SkDataTable.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSpan.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkMalloc.h"
 #include "src/core/SkOSFile.h"
-#include "src/core/SkTaskGroup.h"
 #include "src/utils/SkOSPath.h"
 #include "tests/Test.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
-#include <memory>
 
 static void test_is_equal(skiatest::Reporter* reporter,
                           const SkDataTable* a, const SkDataTable* b) {
@@ -57,7 +56,7 @@ static void test_emptytable(skiatest::Reporter* reporter) {
 
 static void test_simpletable(skiatest::Reporter* reporter) {
     const int idata[] = { 1, 4, 9, 16, 25, 63 };
-    int icount = SK_ARRAY_COUNT(idata);
+    int icount = std::size(idata);
     sk_sp<SkDataTable> itable(SkDataTable::MakeCopyArray(idata, sizeof(idata[0]), icount));
     REPORTER_ASSERT(reporter, itable->count() == icount);
     for (int i = 0; i < icount; ++i) {
@@ -72,8 +71,8 @@ static void test_vartable(skiatest::Reporter* reporter) {
     const char* str[] = {
         "", "a", "be", "see", "deigh", "ef", "ggggggggggggggggggggggggggg"
     };
-    int count = SK_ARRAY_COUNT(str);
-    size_t sizes[SK_ARRAY_COUNT(str)];
+    int count = std::size(str);
+    size_t sizes[std::size(str)];
     for (int i = 0; i < count; ++i) {
         sizes[i] = strlen(str[i]) + 1;
     }
@@ -97,7 +96,7 @@ static void test_globaltable(skiatest::Reporter* reporter) {
     static const int gData[] = {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     };
-    int count = SK_ARRAY_COUNT(gData);
+    int count = std::size(gData);
 
     sk_sp<SkDataTable> table(
         SkDataTable::MakeArrayProc(gData, sizeof(gData[0]), count, nullptr, nullptr));
@@ -121,7 +120,7 @@ DEF_TEST(DataTable, reporter) {
 static void* gGlobal;
 
 static void delete_int_proc(const void* ptr, void* context) {
-    int* data = (int*)ptr;
+    const int* data = (const int*)ptr;
     SkASSERT(context == gGlobal);
     delete[] data;
 }
@@ -172,13 +171,90 @@ static void test_files(skiatest::Reporter* reporter) {
     sk_sp<SkData> r1(SkData::MakeFromFILE(file));
     REPORTER_ASSERT(reporter, r1.get() != nullptr);
     REPORTER_ASSERT(reporter, r1->size() == 26);
-    REPORTER_ASSERT(reporter, strncmp(static_cast<const char*>(r1->data()), s, 26) == 0);
+    REPORTER_ASSERT(reporter, strncmp(reinterpret_cast<const char*>(r1->data()), s, 26) == 0);
 
     int fd = sk_fileno(file);
     sk_sp<SkData> r2(SkData::MakeFromFD(fd));
     REPORTER_ASSERT(reporter, r2.get() != nullptr);
     REPORTER_ASSERT(reporter, r2->size() == 26);
-    REPORTER_ASSERT(reporter, strncmp(static_cast<const char*>(r2->data()), s, 26) == 0);
+    REPORTER_ASSERT(reporter, strncmp(reinterpret_cast<const char*>(r2->data()), s, 26) == 0);
+}
+
+template <typename T> bool operator==(SkSpan<T> a, SkSpan<T> b) {
+    return a.size() == b.size() && a.data() == b.data();
+}
+template <typename T> bool operator!=(SkSpan<T> a, SkSpan<T> b) {
+    return !(a == b);
+}
+
+template <typename T> bool deep_equal(SkSpan<T> a, SkSpan<T> b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    return (a.size() == 0) || (memcmp(a.data(), b.data(), a.size()) == 0);
+}
+
+static void test_subsets(skiatest::Reporter* reporter) {
+    uint8_t array[] = {1, 2, 3, 4};
+    auto src = SkData::MakeWithoutCopy(array, sizeof(array));
+
+    struct Subset {
+        size_t offset, length;
+    };
+
+    const Subset bad_subsets[] = {
+        {5, 0}, {4, 2}, {0, 5}, {3, 2},
+    };
+    for (auto s : bad_subsets) {
+        REPORTER_ASSERT(reporter, src->shareSubset(s.offset, s.length) == nullptr);
+        REPORTER_ASSERT(reporter, src->copySubset(s.offset, s.length) == nullptr);
+    }
+
+    const Subset empty_subsets[] = {
+        {0, 0}, {2, 0}, {4, 0},
+    };
+    for (auto s : empty_subsets) {
+        REPORTER_ASSERT(reporter, src->shareSubset(s.offset, s.length)->empty());
+        REPORTER_ASSERT(reporter, src->copySubset(s.offset, s.length)->empty());
+    }
+
+    auto assert_shared = [reporter](sk_sp<const SkData> data, SkSpan<const uint8_t> src) {
+        REPORTER_ASSERT(reporter, data->byteSpan() == src);
+    };
+    auto assert_copied = [reporter](sk_sp<const SkData> data, SkSpan<const uint8_t> src) {
+        REPORTER_ASSERT(reporter, data->byteSpan() != src);
+        REPORTER_ASSERT(reporter, deep_equal(data->byteSpan(), src));
+    };
+
+    const Subset nonempty_subsets[] = {
+        {0, 4}, {2, 2}, {0, 2}, {1, 2},
+    };
+    for (auto s : nonempty_subsets) {
+        const auto srcSpan = src->byteSpan().subspan(s.offset, s.length);
+        assert_shared(src->shareSubset(s.offset, s.length), srcSpan);
+        assert_copied(src->copySubset(s.offset, s.length),  srcSpan);
+    }
+}
+
+static void test_copies(skiatest::Reporter* reporter) {
+    int32_t array[10];
+    for (int i = 0; i < 10; ++i) array[i] = i;
+
+    auto d = SkData::MakeWithCopy(array, sizeof(array));
+    REPORTER_ASSERT(reporter, d->size() == sizeof(array));
+    REPORTER_ASSERT(reporter, memcmp(array, d->data(), sizeof(array)) == 0);
+
+    auto d1 = d->shareSubset(8, 16);    // 2, 3, 4, 5
+    REPORTER_ASSERT(reporter, d1->size() == 16);
+    REPORTER_ASSERT(reporter, d1->bytes() == d->bytes() + 8);
+
+    auto d2 = d->copySubset(8, 16);
+    REPORTER_ASSERT(reporter, d2->size() == 16);
+    REPORTER_ASSERT(reporter, memcmp(d2->data(), &array[2], d2->size()) == 0);
+
+    REPORTER_ASSERT(reporter, *d == *d);
+    REPORTER_ASSERT(reporter, *d != *d1);
+    REPORTER_ASSERT(reporter, *d1 == *d2);
 }
 
 DEF_TEST(Data, reporter) {
@@ -205,6 +281,9 @@ DEF_TEST(Data, reporter) {
 
     test_cstring(reporter);
     test_files(reporter);
+
+    test_subsets(reporter);
+    test_copies(reporter);
 }
 
 DEF_TEST(Data_empty, reporter) {
@@ -216,7 +295,7 @@ DEF_TEST(Data_empty, reporter) {
         SkData::MakeWithProc(nullptr, 0, [](const void*, void*){}, nullptr),
         SkData::MakeWithoutCopy(nullptr, 0),
     };
-    constexpr int N = SK_ARRAY_COUNT(array);
+    constexpr int N = std::size(array);
 
     for (int i = 0; i < N; ++i) {
         REPORTER_ASSERT(reporter, array[i]->size() == 0);

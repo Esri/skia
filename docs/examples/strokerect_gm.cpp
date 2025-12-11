@@ -1,6 +1,8 @@
 // Copyright 2020 Google LLC.
 // Use of this source code is governed by a BSD-style license that can be found in the LICENSE file.
 #include "tools/fiddle/examples.h"
+#include <cfloat>
+
 REG_FIDDLE(strokerect_gm, 1400, 740, false, 0) {
 void draw(SkCanvas* canvas) {
     constexpr SkScalar kStrokeWidth = 20;
@@ -25,23 +27,22 @@ void draw(SkCanvas* canvas) {
     canvas->translate(kStrokeWidth * 3 / 2, kStrokeWidth * 3 / 2);
     for (int doFill = 0; doFill <= 1; ++doFill) {
         SkPaint::Style style = doFill ? SkPaint::kStrokeAndFill_Style : SkPaint::kStroke_Style;
-        for (size_t i = 0; i < SK_ARRAY_COUNT(gJoins); ++i) {
+        for (size_t i = 0; i < std::size(gJoins); ++i) {
             SkPaint::Join join = gJoins[i];
-            for (size_t j = 0; j < SK_ARRAY_COUNT(gRects); ++j) {
+            for (size_t j = 0; j < std::size(gRects); ++j) {
                 SkAutoCanvasRestore acr(canvas, true);
                 canvas->translate(
                         j * (W + 2 * kStrokeWidth),
-                        (i + doFill * SK_ARRAY_COUNT(gJoins)) * (H + 2 * kStrokeWidth));
+                        (i + doFill * std::size(gJoins)) * (H + 2 * kStrokeWidth));
                 const SkRect& rect = gRects[j];
 
-                SkPath path, fillPath;
-                path.addRect(rect);
+                SkPath path = SkPath::Rect(rect);
                 SkPaint paint;
 
                 paint.setStrokeWidth(kStrokeWidth);
                 paint.setStyle(style);
                 paint.setStrokeJoin(join);
-                paint.getFillPath(path, &fillPath);
+                SkPath fillPath = skpathutils::FillPathWithPaint(path, paint);
 
                 paint.setAntiAlias(true);
                 paint.setColor(0xFF8C8A8C);
@@ -55,9 +56,9 @@ void draw(SkCanvas* canvas) {
                 paint.setStrokeWidth(3);
                 paint.setStrokeJoin(SkPaint::kMiter_Join);
                 int n = fillPath.countPoints();
-                SkAutoTArray<SkPoint> points(n);
-                fillPath.getPoints(points.get(), n);
-                canvas->drawPoints(SkCanvas::kPoints_PointMode, n, points.get(), paint);
+                std::vector<SkPoint> points(n);
+                fillPath.getPoints(points);
+                canvas->drawPoints(SkCanvas::kPoints_PointMode, points, paint);
             }
         }
     }

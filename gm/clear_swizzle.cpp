@@ -6,13 +6,16 @@
  */
 
 #include "gm/gm.h"
+
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
-#include "include/private/SkColorData.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrSwizzle.h"
-#include "src/gpu/SurfaceFillContext.h"
+#include "src/core/SkColorData.h"
+#include "src/gpu/Swizzle.h"
+#include "src/gpu/ganesh/GrCanvas.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/SurfaceFillContext.h"
 
 namespace skiagm {
 
@@ -25,27 +28,30 @@ DEF_SIMPLE_GPU_GM_CAN_FAIL(clear_swizzle, rContext, canvas, errorMsg, 6*kSize, 2
         return DrawResult::kSkip;
     }
 
-    auto sfc = SkCanvasPriv::TopDeviceSurfaceFillContext(canvas);
+    auto sfc = skgpu::ganesh::TopDeviceSurfaceFillContext(canvas);
     if (!sfc) {
         *errorMsg = GM::kErrorMsg_DrawSkippedGpuOnly;
         return DrawResult::kSkip;
     }
 
     auto make_offscreen = [&](const SkISize dimensions) {
-        GrSwizzle readSwizzle  = GrSwizzle::Concat(sfc->readSwizzle(), GrSwizzle{"bgra"});
-        GrSwizzle writeSwizzle = GrSwizzle::Concat(sfc->readSwizzle(), GrSwizzle{"bgra"});
+        skgpu::Swizzle readSwizzle  = skgpu::Swizzle::Concat(sfc->readSwizzle(),
+                                                             skgpu::Swizzle{"bgra"});
+        skgpu::Swizzle writeSwizzle = skgpu::Swizzle::Concat(sfc->readSwizzle(),
+                                                             skgpu::Swizzle{"bgra"});
         return rContext->priv().makeSFC(kPremul_SkAlphaType,
                                         sfc->colorInfo().refColorSpace(),
                                         dimensions,
                                         SkBackingFit::kExact,
                                         sfc->asSurfaceProxy()->backendFormat(),
                                         /* sample count*/ 1,
-                                        GrMipmapped::kNo,
+                                        skgpu::Mipmapped::kNo,
                                         sfc->asSurfaceProxy()->isProtected(),
                                         readSwizzle,
                                         writeSwizzle,
                                         kTopLeft_GrSurfaceOrigin,
-                                        SkBudgeted::kYes);
+                                        skgpu::Budgeted::kYes,
+                                        /*label=*/{});
     };
 
     struct {

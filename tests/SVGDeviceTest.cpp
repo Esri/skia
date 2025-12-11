@@ -5,6 +5,36 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkTypes.h"
+#ifdef SK_XML
+
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkPathEffect.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTileMode.h"
+#include "include/effects/SkDashPathEffect.h"
+#include "include/private/base/SkTo.h"
+#include "include/svg/SkSVGCanvas.h"
+#include "include/utils/SkParse.h"
+#include "src/shaders/SkImageShader.h"
+#include "src/svg/SkSVGDevice.h"
+#include "src/xml/SkDOM.h"
+#include "src/xml/SkXMLWriter.h"
+#include "tests/Test.h"
+#include "tools/ToolUtils.h"
+#include "tools/fonts/FontToolUtils.h"
+
+#include <string>
+
+using namespace skia_private;
+
 #define ABORT_TEST(r, cond, ...)                                   \
     do {                                                           \
         if (cond) {                                                \
@@ -13,29 +43,6 @@
         }                                                          \
     } while (0)
 
-#include "include/core/SkBitmap.h"
-#include "include/core/SkCanvas.h"
-#include "include/core/SkColorFilter.h"
-#include "include/core/SkData.h"
-#include "include/core/SkImage.h"
-#include "include/core/SkShader.h"
-#include "include/core/SkStream.h"
-#include "include/core/SkTextBlob.h"
-#include "include/effects/SkDashPathEffect.h"
-#include "include/private/SkTo.h"
-#include "include/svg/SkSVGCanvas.h"
-#include "include/utils/SkParse.h"
-#include "src/shaders/SkImageShader.h"
-#include "tests/Test.h"
-#include "tools/ToolUtils.h"
-
-#include <string.h>
-
-#ifdef SK_XML
-
-#include "src/svg/SkSVGDevice.h"
-#include "src/xml/SkDOM.h"
-#include "src/xml/SkXMLWriter.h"
 
 static std::unique_ptr<SkCanvas> MakeDOMCanvas(SkDOM* dom, uint32_t flags = 0) {
     auto svgDevice = SkSVGDevice::Make(SkISize::Make(100, 100),
@@ -82,7 +89,7 @@ void check_text_node(skiatest::Reporter* reporter,
         int xposCount = textLen;
         REPORTER_ASSERT(reporter, SkParse::Count(x) == xposCount);
 
-        SkAutoTMalloc<SkScalar> xpos(xposCount);
+        AutoTMalloc<SkScalar> xpos(xposCount);
         SkParse::FindScalars(x, xpos.get(), xposCount);
         if (scalarsPerPos < 1) {
             // For default-positioned text, we cannot make any assumptions regarding
@@ -103,7 +110,7 @@ void check_text_node(skiatest::Reporter* reporter,
         int yposCount = (scalarsPerPos < 2) ? 1 : textLen;
         REPORTER_ASSERT(reporter, SkParse::Count(y) == yposCount);
 
-        SkAutoTMalloc<SkScalar> ypos(yposCount);
+        AutoTMalloc<SkScalar> ypos(yposCount);
         SkParse::FindScalars(y, ypos.get(), yposCount);
         if (scalarsPerPos < 2) {
             REPORTER_ASSERT(reporter, ypos[0] == offset.y());
@@ -122,7 +129,7 @@ void test_whitespace_pos(skiatest::Reporter* reporter,
 
     SkDOM dom;
     SkPaint paint;
-    SkFont font(ToolUtils::create_portable_typeface());
+    SkFont font = ToolUtils::DefaultPortableFont();
     SkPoint offset = SkPoint::Make(10, 20);
 
     {
@@ -132,23 +139,23 @@ void test_whitespace_pos(skiatest::Reporter* reporter,
     check_text_node(reporter, dom, dom.finishParsing(), offset, 0, txt, expected);
 
     {
-        SkAutoTMalloc<SkScalar> xpos(len);
+        AutoTArray<SkScalar> xpos(len);
         for (int i = 0; i < SkToInt(len); ++i) {
             xpos[i] = SkIntToScalar(txt[i]);
         }
 
-        auto blob = SkTextBlob::MakeFromPosTextH(txt, len, &xpos[0], offset.y(), font);
+        auto blob = SkTextBlob::MakeFromPosTextH(txt, len, xpos, offset.y(), font);
         MakeDOMCanvas(&dom)->drawTextBlob(blob, 0, 0, paint);
     }
     check_text_node(reporter, dom, dom.finishParsing(), offset, 1, txt, expected);
 
     {
-        SkAutoTMalloc<SkPoint> pos(len);
+        AutoTArray<SkPoint> pos(len);
         for (int i = 0; i < SkToInt(len); ++i) {
             pos[i] = SkPoint::Make(SkIntToScalar(txt[i]), 150 - SkIntToScalar(txt[i]));
         }
 
-        auto blob = SkTextBlob::MakeFromPosText(txt, len, &pos[0], font);
+        auto blob = SkTextBlob::MakeFromPosText(txt, len, pos, font);
         MakeDOMCanvas(&dom)->drawTextBlob(blob, 0, 0, paint);
     }
     check_text_node(reporter, dom, dom.finishParsing(), offset, 2, txt, expected);
@@ -173,14 +180,14 @@ DEF_TEST(SVGDevice_whitespace_pos, reporter) {
         { "\t\t  \t ab \t\t  \t cd \t\t   \t  ", "ab cd " },
     };
 
-    for (unsigned i = 0; i < SK_ARRAY_COUNT(tests); ++i) {
+    for (unsigned i = 0; i < std::size(tests); ++i) {
         test_whitespace_pos(reporter, tests[i].tst_in, tests[i].tst_out);
     }
 }
 
 void SetImageShader(SkPaint* paint, int imageWidth, int imageHeight, SkTileMode xTile,
                     SkTileMode yTile) {
-    auto surface = SkSurface::MakeRasterN32Premul(imageWidth, imageHeight);
+    auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(imageWidth, imageHeight));
     paint->setShader(surface->makeImageSnapshot()->makeShader(xTile, yTile, SkSamplingOptions()));
 }
 
@@ -384,7 +391,7 @@ DEF_TEST(SVGDevice_ColorFilters, reporter) {
 
 DEF_TEST(SVGDevice_textpath, reporter) {
     SkDOM dom;
-    SkFont font(ToolUtils::create_portable_typeface());
+    SkFont font = ToolUtils::DefaultPortableFont();
     SkPaint paint;
 
     auto check_text = [&](uint32_t flags, bool expect_path) {
@@ -409,7 +416,7 @@ DEF_TEST(SVGDevice_textpath, reporter) {
 
     // We also use paths in the presence of path effects.
     SkScalar intervals[] = {10, 5};
-    paint.setPathEffect(SkDashPathEffect::Make(intervals, SK_ARRAY_COUNT(intervals), 0));
+    paint.setPathEffect(SkDashPathEffect::Make(intervals, 0));
     check_text(0, /*expect_path=*/true);
 }
 
@@ -449,6 +456,42 @@ DEF_TEST(SVGDevice_fill_stroke, reporter) {
         REPORTER_ASSERT(reporter, !!stroke == !!tst.expected_stroke);
         if (stroke) {
             REPORTER_ASSERT(reporter, strcmp(stroke, tst.expected_stroke) == 0);
+        }
+    }
+}
+
+DEF_TEST(SVGDevice_fill_opacity_black_fill, reporter) {
+    struct {
+        SkColor     color;
+        const char* expected_fill_opacity;
+    } gTests[] = {
+        // Semi-transparent black
+        {  SkColorSetARGB(0x33, 0x00, 0x00, 0x00), "0.2" },
+        // Opaque black
+        {  SkColorSetARGB(0xFF, 0x00, 0x00, 0x00), nullptr },
+    };
+
+    for (const auto& tst : gTests) {
+        SkPaint p;
+        p.setColor(tst.color);
+        p.setStyle(SkPaint::kFill_Style);
+
+        SkDOM dom;
+        {
+            auto svgCanvas = MakeDOMCanvas(&dom);
+            SkRect bounds{0, 0, SkIntToScalar(100), SkIntToScalar(100)};
+            svgCanvas->drawRect(bounds, p);
+        }
+
+        const SkDOM::Node* rootElement = dom.finishParsing();
+        ABORT_TEST(reporter, !rootElement, "root element not found");
+
+        const SkDOM::Node* rectElement = dom.getFirstChild(rootElement, "rect");
+        ABORT_TEST(reporter, !rectElement, "rect element not found");
+        const auto* fill_opacity = dom.findAttr(rectElement, "fill-opacity");
+        REPORTER_ASSERT(reporter, !!fill_opacity == !!tst.expected_fill_opacity);
+        if (fill_opacity) {
+            REPORTER_ASSERT(reporter, strcmp(fill_opacity, tst.expected_fill_opacity) == 0);
         }
     }
 }
@@ -529,6 +572,67 @@ DEF_TEST(SVGDevice_fill_stroke_rect_hex, reporter) {
     REPORTER_ASSERT(reporter, strcmp(dom.findAttr(rectNode, "stroke-width"), "1") == 0);
 }
 
+DEF_TEST(SVGDevice_rect_with_path_effect, reporter) {
+    SkDOM dom;
+
+    SkScalar intervals[] = {0, 20};
+    sk_sp<SkPathEffect> pathEffect = SkDashPathEffect::Make(intervals, 0);
+
+    SkPaint paint;
+    paint.setPathEffect(pathEffect);
+
+    {
+        auto svgCanvas = MakeDOMCanvas(&dom);
+        svgCanvas->drawRect(SkRect::MakeXYWH(0, 0, 100, 100), paint);
+    }
+
+    const auto* rootElement = dom.finishParsing();
+    REPORTER_ASSERT(reporter, rootElement, "root element not found");
+    const auto* pathElement = dom.getFirstChild(rootElement, "path");
+    REPORTER_ASSERT(reporter, pathElement, "path element not found");
+}
+
+DEF_TEST(SVGDevice_rrect_with_path_effect, reporter) {
+    SkDOM dom;
+
+    SkScalar intervals[] = {0, 20};
+    sk_sp<SkPathEffect> pathEffect = SkDashPathEffect::Make(intervals, 0);
+
+    SkPaint paint;
+    paint.setPathEffect(pathEffect);
+
+    {
+        auto svgCanvas = MakeDOMCanvas(&dom);
+        svgCanvas->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(0, 0, 100, 100), 10, 10), paint);
+    }
+
+    const auto* rootElement = dom.finishParsing();
+    REPORTER_ASSERT(reporter, rootElement, "root element not found");
+    const auto* pathElement = dom.getFirstChild(rootElement, "path");
+    REPORTER_ASSERT(reporter, pathElement, "path element not found");
+}
+
+DEF_TEST(SVGDevice_oval_with_path_effect, reporter) {
+    SkDOM dom;
+
+    SkScalar intervals[] = {0, 20};
+    sk_sp<SkPathEffect> pathEffect = SkDashPathEffect::Make(intervals, 0);
+
+    SkPaint paint;
+    paint.setPathEffect(pathEffect);
+
+    {
+        auto svgCanvas = MakeDOMCanvas(&dom);
+        svgCanvas->drawOval(SkRect::MakeXYWH(0, 0, 100, 100), paint);
+    }
+
+    const auto* rootElement = dom.finishParsing();
+    REPORTER_ASSERT(reporter, rootElement, "root element not found");
+    const auto* pathElement = dom.getFirstChild(rootElement, "path");
+    REPORTER_ASSERT(reporter, pathElement, "path element not found");
+}
+
+
 DEF_TEST(SVGDevice_path_effect, reporter) {
     SkDOM dom;
 
@@ -540,12 +644,12 @@ DEF_TEST(SVGDevice_path_effect, reporter) {
 
     // Produces a line of three red dots.
     SkScalar intervals[] = {0, 20};
-    sk_sp<SkPathEffect> pathEffect = SkDashPathEffect::Make(intervals, 2, 0);
+    sk_sp<SkPathEffect> pathEffect = SkDashPathEffect::Make(intervals, 0);
     paint.setPathEffect(pathEffect);
-    SkPoint points[] = {{50, 15}, {100, 15}, {150, 15} };
+    const SkPoint points[] = {{50, 15}, {100, 15}, {150, 15} };
     {
         auto svgCanvas = MakeDOMCanvas(&dom);
-        svgCanvas->drawPoints(SkCanvas::kLines_PointMode, 3, points, paint);
+        svgCanvas->drawPoints(SkCanvas::kLines_PointMode, points, paint);
     }
     const auto* rootElement = dom.finishParsing();
     REPORTER_ASSERT(reporter, rootElement, "root element not found");
@@ -571,11 +675,12 @@ DEF_TEST(SVGDevice_relative_path_encoding, reporter) {
     SkDOM dom;
     {
         auto svgCanvas = MakeDOMCanvas(&dom, SkSVGCanvas::kRelativePathEncoding_Flag);
-        SkPath path;
-        path.moveTo(100, 50);
-        path.lineTo(200, 50);
-        path.lineTo(200, 150);
-        path.close();
+        SkPath path = SkPathBuilder()
+                      .moveTo(100, 50)
+                      .lineTo(200, 50)
+                      .lineTo(200, 150)
+                      .close()
+                      .detach();
 
         svgCanvas->drawPath(path, SkPaint());
     }
@@ -606,6 +711,23 @@ DEF_TEST(SVGDevice_color_shader, reporter) {
     const auto* fill = dom.findAttr(ellipseElement, "fill");
     REPORTER_ASSERT(reporter, fill, "fill attribute not found");
     REPORTER_ASSERT(reporter, !strcmp(fill, "yellow"));
+}
+
+DEF_TEST(SVGDevice_parse_minmax, reporter) {
+    auto check = [&](int64_t n, bool expected) {
+        const auto str = std::to_string(n);
+
+        int val;
+        REPORTER_ASSERT(reporter, SkToBool(SkParse::FindS32(str.c_str(), &val)) == expected);
+        if (expected) {
+            REPORTER_ASSERT(reporter, val == n);
+        }
+    };
+
+    check(std::numeric_limits<int>::max(), true);
+    check(std::numeric_limits<int>::min(), true);
+    check(static_cast<int64_t>(std::numeric_limits<int>::max()) + 1, false);
+    check(static_cast<int64_t>(std::numeric_limits<int>::min()) - 1, false);
 }
 
 #endif

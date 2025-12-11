@@ -1,4 +1,4 @@
-#Fuzzing
+# Fuzzing
 In this folder, we keep our _fuzzers_ (bits of code that takes a randomized input and executes code
 randomly, focusing on specific APIs). For example, we have a codec fuzzer which takes a mutated
 png/jpeg or similar file and attempts to turn it into an `SkImage`. We also have a canvas fuzzer
@@ -15,7 +15,7 @@ See [../site/dev/testing/fuzz.md] for more information on building and running f
 
 ## Continuous Running
 We fuzz Skia using [OSS-Fuzz](https://github.com/google/oss-fuzz), which in turn uses fuzzing
-engines such as libfuzzer, afl-fuzz, hong-fuzz, and others to fuzz Skia. OSS-fuzz will automatically
+engines such as libfuzzer, afl-fuzz, hong-fuzz, and others to fuzz Skia. OSS-Fuzz will automatically
 [file and close bugs](https://bugs.chromium.org/p/oss-fuzz/issues/list?q=label:Proj-skia) when
 it finds issues.
 
@@ -26,11 +26,9 @@ are automatically run.
 describes how to test the OSS-Fuzz build and fuzzers locally using Docker.
 
 When enabling a fuzzer in OSS-Fuzz, we typically need to follow these steps:
-  1. *Add a seed corpus to `gs://skia-fuzzer/oss-fuzz/` (in the
-     [skia-public project](https://console.cloud.google.com/storage/browser/skia-fuzzer?project=skia-public)).
-     Make sure the corpus file is public-readable. It is easiest to add this permission via the web
-     UI. This is done by granting the allUsers "name" the Reader role to the zip file. See the infra
-     team if you do not have access to this bucket.
+  1. *Add a seed corpus to `gs://skia-cdn/oss-fuzz/` (in the
+     [Skia Buildbots project](https://console.cloud.google.com/storage/browser/skia-cdn?project=google.com:skia-buildbots)).
+     One needs to get "breakglass" permissions to upload to this bucket.
   2. *Update [the Dockerfile](https://github.com/google/oss-fuzz/blob/master/projects/skia/Dockerfile)
      to download the seed corpus to the build image.
   3. Update [build.sh](https://github.com/google/oss-fuzz/blob/628264df27f53cc60fcb27406a2da05d2197c025/projects/skia/build.sh#L99)
@@ -44,7 +42,7 @@ parsing. These are called _binary fuzzers_, as opposed to _API fuzzers_.
 Example PRs for adding fuzzers: [binary](https://github.com/google/oss-fuzz/pull/4108),
 [API](https://github.com/google/oss-fuzz/pull/5657)
 
-There is also an [OSS-fuzz folder](https://github.com/google/oss-fuzz/tree/master/projects/skcms)
+There is also an [OSS-Fuzz folder](https://github.com/google/oss-fuzz/tree/master/projects/skcms)
 set up for the [skcms repo](https://skia.googlesource.com/skcms/). The build process is similar,
 except instead of compiling using GN targets, the build.sh script compiles the fuzz executables
 directly.
@@ -59,8 +57,7 @@ Here are some example dashboards:
  - [Per Fuzzer summary for all Skia fuzzers driven by libFuzzer](https://oss-fuzz.com/fuzzer-stats?group_by=by-fuzzer&date_start=2021-08-16&date_end=2021-08-22&fuzzer=libFuzzer&job=libfuzzer_asan_skia&project=skia)
  - [Five day summary of sksl2glsl driven by afl-fuzz](https://oss-fuzz.com/fuzzer-stats?group_by=by-day&date_start=2021-08-16&date_end=2021-08-22&fuzzer=afl_skia_sksl2glsl&job=afl_asan_skia&project=skia)
 
-That dashboard also has a Coverage Report. Even though it appears the Coverage report is per fuzzer,
-the reports always show the aggregated coverage from all fuzzers.
+OSS-Fuzz also offers [a combined Coverage Report from all Skia fuzzers](https://oss-fuzz.com/coverage-report/job/libfuzzer_asan_skia/latest).
 [Example coverage report from 2021 Aug 22](https://storage.googleapis.com/oss-fuzz-coverage/skia/reports/20210822/linux/report.html)
 
 ## See Also

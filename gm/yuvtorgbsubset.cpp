@@ -14,17 +14,18 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkYUVAInfo.h"
 #include "include/core/SkYUVAPixmaps.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/gpu/GrSamplerState.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/GrYUVATextureProxies.h"
-#include "src/gpu/SkGr.h"
-#include "src/gpu/effects/GrYUVtoRGBEffect.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "tools/gpu/YUVUtils.h"
+
+#if defined(SK_GANESH)
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "src/gpu/ganesh/SkGr.h"
+#endif
 
 #include <memory>
 #include <utility>
@@ -36,20 +37,18 @@ namespace skiagm {
 //////////////////////////////////////////////////////////////////////////////
 
 // This GM tests subsetting YUV multiplanar images where the U and V
-// planes have different resolution from Y. See skbug:8959
+// planes have different resolution from Y. See skbug.com/40040241
 
-class YUVtoRGBSubsetEffect : public GpuGM {
+class YUVtoRGBSubsetEffect : public GM {
 public:
     YUVtoRGBSubsetEffect() {
         this->setBGColor(0xFFFFFFFF);
     }
 
 protected:
-    SkString onShortName() override {
-        return SkString("yuv_to_rgb_subset_effect");
-    }
+    SkString getName() const override { return SkString("yuv_to_rgb_subset_effect"); }
 
-    SkISize onISize() override { return {1310, 540}; }
+    SkISize getISize() override { return {1310, 540}; }
 
     void makePixmaps() {
         SkYUVAInfo yuvaInfo = SkYUVAInfo({8, 8},
@@ -82,79 +81,97 @@ protected:
         bitmaps[2].writePixels(innerVPM, 1, 1);
     }
 
-    DrawResult onGpuSetup(GrDirectContext* context, SkString* errorMsg) override {
-        if (!context) {
+    DrawResult onGpuSetup(SkCanvas* canvas, SkString* errorMsg, GraphiteTestContext*) override {
+        skgpu::graphite::Recorder* recorder = nullptr;
+        GrDirectContext* context = nullptr;
+
+#if defined(SK_GRAPHITE)
+        recorder = canvas->recorder();
+#endif
+#if defined(SK_GANESH)
+        context = GrAsDirectContext(canvas->recordingContext());
+#endif
+
+        if (!context && !recorder) {
             return DrawResult::kSkip;
         }
+
         if (!fPixmaps.isValid()) {
             this->makePixmaps();
         }
-        GrSurfaceProxyView views[SkYUVAInfo::kMaxPlanes];
-        GrColorType colorTypes[SkYUVAInfo::kMaxPlanes];
-        for (int i = 0; i < fPixmaps.numPlanes(); ++i) {
-            SkBitmap bitmap;
-            bitmap.installPixels(fPixmaps.plane(i));
-            bitmap.setImmutable();
-            views[i] = std::get<0>(GrMakeCachedBitmapProxyView(context, bitmap, GrMipmapped::kNo));
-            if (!views[i]) {
-                *errorMsg = "Failed to create proxy";
-                return context->abandoned() ? DrawResult::kSkip : DrawResult::kFail;
-            }
-            colorTypes[i] = SkColorTypeToGrColorType(bitmap.colorType());
+
+        auto lazyYUV = sk_gpu_test::LazyYUVImage::Make(fPixmaps);
+#if defined(SK_GRAPHITE)
+        if (recorder) {
+            fYUVImage = lazyYUV->refImage(recorder, sk_gpu_test::LazyYUVImage::Type::kFromPixmaps);
         }
-        fProxies = GrYUVATextureProxies(fPixmaps.yuvaInfo(), views, colorTypes);
-        if (!fProxies.isValid()) {
-            *errorMsg = "Failed to create GrYUVATextureProxies";
-            return DrawResult::kFail;
+#endif
+#if defined(SK_GANESH)
+        if (context) {
+            fYUVImage = lazyYUV->refImage(context, sk_gpu_test::LazyYUVImage::Type::kFromPixmaps);
         }
+#endif
+
         return DrawResult::kOk;
     }
 
-    void onGpuTeardown() override { fProxies = {}; }
+    void onGpuTeardown() override { fYUVImage.reset(); }
 
-    DrawResult onDraw(GrRecordingContext* rContext,
-                      SkCanvas* canvas,
-                      SkString* errorMsg) override {
-        auto sdc = SkCanvasPriv::TopDeviceSurfaceDrawContext(canvas);
-        if (!sdc) {
+    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
+        SkRecorder* recorder = canvas->baseRecorder();
+        if (!recorder) {
             *errorMsg = kErrorMsg_DrawSkippedGpuOnly;
             return DrawResult::kSkip;
         }
 
-        static const GrSamplerState::Filter kFilters[] = {GrSamplerState::Filter::kNearest,
-                                                          GrSamplerState::Filter::kLinear};
-        static const SkRect kColorRect = SkRect::MakeLTRB(2.f, 2.f, 6.f, 6.f);
+        if (!fYUVImage) {
+            *errorMsg = "No valid YUV image generated -- skipping";
+            return DrawResult::kSkip;
+        }
+
+        static const SkFilterMode kFilters[] = {SkFilterMode::kNearest,
+                                                SkFilterMode::kLinear};
+        static const SkIRect kColorRect = SkIRect::MakeLTRB(2, 2, 6, 6);
 
         // Outset to visualize wrap modes.
-        SkRect rect = SkRect::Make(fProxies.yuvaInfo().dimensions());
-        rect = rect.makeOutset(fProxies.yuvaInfo().width()/2.f, fProxies.yuvaInfo().height()/2.f);
+        SkRect rect = SkRect::Make(fYUVImage->dimensions());
+        rect = rect.makeOutset(fYUVImage->width()/2.f, fYUVImage->height()/2.f);
 
         SkScalar y = kTestPad;
         // Rows are filter modes.
-        for (uint32_t i = 0; i < SK_ARRAY_COUNT(kFilters); ++i) {
+        for (uint32_t i = 0; i < std::size(kFilters); ++i) {
             SkScalar x = kTestPad;
-            // Columns are non-subsetted followed by subsetted with each WrapMode in a row
-            for (uint32_t j = 0; j < GrSamplerState::kWrapModeCount + 1; ++j) {
+            // Columns are non-subsetted followed by subsetted with each TileMode in a row
+            for (uint32_t j = 0; j < kSkTileModeCount + 1; ++j) {
                 SkMatrix ctm = SkMatrix::Translate(x, y);
                 ctm.postScale(10.f, 10.f);
 
-                const SkRect* subset = j > 0 ? &kColorRect : nullptr;
+                const SkIRect* subset = j > 0 ? &kColorRect : nullptr;
 
-                GrSamplerState samplerState;
-                samplerState.setFilterMode(kFilters[i]);
+                auto tm = SkTileMode::kClamp;
                 if (j > 0) {
-                    auto wm = static_cast<GrSamplerState::WrapMode>(j - 1);
-                    samplerState.setWrapModeX(wm);
-                    samplerState.setWrapModeY(wm);
+                    tm = static_cast<SkTileMode>(j - 1);
                 }
-                const auto& caps = *rContext->priv().caps();
-                std::unique_ptr<GrFragmentProcessor> fp =
-                        GrYUVtoRGBEffect::Make(fProxies, samplerState, caps, SkMatrix::I(), subset);
-                if (fp) {
-                    GrPaint grPaint;
-                    grPaint.setColorFragmentProcessor(std::move(fp));
-                    sdc->drawRect(nullptr, std::move(grPaint), GrAA::kYes, ctm, rect);
+
+                canvas->save();
+                canvas->concat(ctm);
+                SkSamplingOptions sampling(kFilters[i]);
+                SkPaint paint;
+                // Draw black rectangle in background so rendering with Decal tilemode matches
+                // the previously used ClampToBorder wrapmode.
+                paint.setColor(SK_ColorBLACK);
+                canvas->drawRect(rect, paint);
+                if (subset) {
+                    sk_sp<SkImage> subsetImg = fYUVImage->makeSubset(recorder, *subset, {false});
+                    SkASSERT(subsetImg);
+                    paint.setShader(subsetImg->makeShader(tm, tm,
+                                                          sampling, SkMatrix::Translate(2, 2)));
+                } else {
+                    paint.setShader(fYUVImage->makeShader(tm, tm,
+                                                          sampling, SkMatrix::I()));
                 }
+                canvas->drawRect(rect, paint);
+                canvas->restore();
                 x += rect.width() + kTestPad;
             }
 
@@ -166,7 +183,7 @@ protected:
 
 private:
     SkYUVAPixmaps fPixmaps;
-    GrYUVATextureProxies fProxies;
+    sk_sp<SkImage> fYUVImage;
 
     inline static constexpr SkScalar kTestPad = 10.f;
 

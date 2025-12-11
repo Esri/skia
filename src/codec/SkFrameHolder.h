@@ -13,7 +13,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkEncodedInfo.h"
-#include "include/private/SkNoncopyable.h"
+#include "include/private/base/SkNoncopyable.h"
 
 /**
  *  Base class for a single frame of an animated image.
@@ -23,14 +23,13 @@
  */
 class SkFrame : public SkNoncopyable {
 public:
-    SkFrame(int id)
-        : fId(id)
-        , fHasAlpha(false)
-        , fRequiredFrame(kUninitialized)
-        , fDisposalMethod(SkCodecAnimation::DisposalMethod::kKeep)
-        , fDuration(0)
-        , fBlend(SkCodecAnimation::Blend::kSrcOver)
-    {
+    explicit SkFrame(int id)
+            : fId(id)
+            , fHasAlpha(false)
+            , fRequiredFrame(kUninitialized)
+            , fDisposalMethod(SkCodecAnimation::DisposalMethod::kKeep)
+            , fDuration(0)
+            , fBlend(SkCodecAnimation::Blend::kSrcOver) {
         fRect.setEmpty();
     }
 

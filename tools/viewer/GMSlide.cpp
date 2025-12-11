@@ -4,22 +4,22 @@
 * Use of this source code is governed by a BSD-style license that can be
 * found in the LICENSE file.
 */
-/*
-* Copyright 2014 Google Inc.
-*
-* Use of this source code is governed by a BSD-style license that can be
-* found in the LICENSE file.
-*/
 
-#include "include/core/SkCanvas.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrRecordingContext.h"
 #include "tools/viewer/GMSlide.h"
+
+#include "include/core/SkString.h"
+#include "include/core/SkSurfaceProps.h"
+
+#include <memory>
+#include <utility>
+
+class SkCanvas;
+class SkMetaData;
 
 GMSlide::GMSlide(std::unique_ptr<skiagm::GM> gm) : fGM(std::move(gm)) {
     fGM->setMode(skiagm::GM::kSample_Mode);
 
-    fName.printf("GM_%s", fGM->getName());
+    fName.printf("GM_%s", fGM->getName().c_str());
 }
 
 GMSlide::~GMSlide() = default;
@@ -28,11 +28,14 @@ void GMSlide::gpuTeardown() {
     fGM->gpuTeardown();
 }
 
+void GMSlide::setSurfaceProps(SkSurfaceProps* props) {
+    fGM->modifySurfaceProps(props);
+}
+
 void GMSlide::draw(SkCanvas* canvas) {
     SkString msg;
 
-    auto direct = GrAsDirectContext(canvas->recordingContext());
-    auto result = fGM->gpuSetup(direct, canvas, &msg);
+    auto result = fGM->gpuSetup(canvas, &msg);
     if (result != skiagm::GM::DrawResult::kOk) {
         return;
     }

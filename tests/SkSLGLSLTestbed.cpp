@@ -5,33 +5,40 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkTypes.h"
 #include "src/sksl/SkSLCompiler.h"
-
+#include "src/sksl/SkSLProgramKind.h"
+#include "src/sksl/SkSLProgramSettings.h"
+#include "src/sksl/SkSLUtil.h"
+#include "src/sksl/codegen/SkSLGLSLCodeGenerator.h"
+#include "src/sksl/codegen/SkSLNativeShader.h"
+#include "src/sksl/ir/SkSLProgram.h"
 #include "tests/Test.h"
 
+#include <memory>
+#include <string>
+
 static void test(skiatest::Reporter* r,
-                 const SkSL::ShaderCaps& caps,
                  const char* src,
                  SkSL::ProgramKind kind = SkSL::ProgramKind::kFragment) {
-    SkSL::Compiler compiler(&caps);
-    SkSL::Program::Settings settings;
-    SkSL::String output;
-    std::unique_ptr<SkSL::Program> program = compiler.convertProgram(kind, SkSL::String(src),
+    SkSL::Compiler compiler;
+    SkSL::ProgramSettings settings;
+    std::unique_ptr<SkSL::Program> program = compiler.convertProgram(kind, std::string(src),
                                                                      settings);
     if (!program) {
         SkDebugf("Unexpected error compiling %s\n%s", src, compiler.errorText().c_str());
         REPORTER_ASSERT(r, program);
     } else {
-        REPORTER_ASSERT(r, compiler.toGLSL(*program, &output));
-        REPORTER_ASSERT(r, output != "");
-        //SkDebugf("GLSL output:\n\n%s", output.c_str());
+        SkSL::NativeShader output;
+        REPORTER_ASSERT(r, SkSL::ToGLSL(*program, SkSL::ShaderCapsFactory::Default(), &output));
+        REPORTER_ASSERT(r, output.fText != "");
+        //SkDebugf("GLSL output:\n\n%s", output.fText.c_str());
     }
 }
 
 DEF_TEST(SkSLGLSLTestbed, r) {
     // Add in your SkSL here.
     test(r,
-         *SkSL::ShaderCapsFactory::Default(),
          R"__SkSL__(
              void main() {
                  sk_FragColor = half4(0);

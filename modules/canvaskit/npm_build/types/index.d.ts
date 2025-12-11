@@ -1,5 +1,7 @@
-// Minimum TypeScript Version: 3.7
-export function CanvasKitInit(opts: CanvasKitInitOptions): Promise<CanvasKit>;
+// Minimum TypeScript Version: 4.4
+/// <reference types="@webgpu/types" />
+
+export default function CanvasKitInit(opts?: CanvasKitInitOptions): Promise<CanvasKit>;
 
 export interface CanvasKitInitOptions {
     /**
@@ -7,7 +9,15 @@ export interface CanvasKitInitOptions {
      * the blob of WASM code). The correct url prefix should be applied.
      * @param file - the name of the file that is about to be loaded.
      */
-    locateFile(file: string): string;
+    locateFile?(file: string): string;
+
+    /**
+     * See https://emscripten.org/docs/api_reference/module.html#Module.instantiateWasm
+     */
+    instantiateWasm?(
+        imports: Record<string, any>,
+        successCallback: (instance: WebAssembly.Instance) => void
+    ): WebAssembly.Exports | {} | false;
 }
 
 export interface CanvasKit {
@@ -135,7 +145,7 @@ export interface CanvasKit {
      * @param lightPos - The 3D position of the light relative to the canvas plane. This is
      *                   independent of the canvas's current matrix.
      * @param lightRadius - The radius of the disc light.
-     * @param flags - See SkShadowFlags.h; 0 means use default options.
+     * @param flags - See SkShadowUtils.h; 0 means use default options.
      * @param dstRect - if provided, the bounds will be copied into this rect instead of allocating
      *                  a new one.
      * @returns The bounding rectangle or null if it could not be computed.
@@ -184,9 +194,10 @@ export interface CanvasKit {
      * Creates a Surface on a given canvas. If both GPU and CPU modes have been compiled in, this
      * will first try to create a GPU surface and then fallback to a CPU one if that fails. If just
      * the CPU mode has been compiled in, a CPU surface will be created.
-     * @param canvas - either the canvas element itself or a string with the DOM id of it.
+     * @param canvas - either a canvas or a string with the DOM id of it.
+     * @deprecated - Use MakeSWCanvasSurface, MakeWebGLCanvasSurface, or MakeGPUCanvasSurface.
      */
-    MakeCanvasSurface(canvas: HTMLCanvasElement | string): Surface | null;
+    MakeCanvasSurface(canvas: HTMLCanvasElement | OffscreenCanvas | string): Surface | null;
 
     /**
      * Creates a Raster (CPU) Surface that will draw into the provided Malloc'd buffer. This allows
@@ -203,18 +214,19 @@ export interface CanvasKit {
 
     /**
      * Creates a CPU backed (aka raster) surface.
-     * @param canvas - either the canvas element itself or a string with the DOM id of it.
+     * @param canvas - either a canvas or a string with the DOM id of it.
      */
-    MakeSWCanvasSurface(canvas: HTMLCanvasElement | string): Surface | null;
+    MakeSWCanvasSurface(canvas: HTMLCanvasElement | OffscreenCanvas | string): Surface | null;
 
     /**
      * A helper for creating a WebGL backed (aka GPU) surface and falling back to a CPU surface if
      * the GPU one cannot be created. This works for both WebGL 1 and WebGL 2.
-     * @param canvas - Either the canvas element itself or a string with the DOM id of it.
+     * @param canvas - Either a canvas or a string with the DOM id of it.
      * @param colorSpace - One of the supported color spaces. Default is SRGB.
      * @param opts - Options that will get passed to the creation of the WebGL context.
      */
-    MakeWebGLCanvasSurface(canvas: HTMLCanvasElement | string, colorSpace?: ColorSpace,
+    MakeWebGLCanvasSurface(canvas: HTMLCanvasElement | OffscreenCanvas | string,
+                           colorSpace?: ColorSpace,
                            opts?: WebGLOptions): Surface | null;
 
     /**
@@ -232,13 +244,21 @@ export interface CanvasKit {
      * @param canvas
      * @param opts
      */
-    GetWebGLContext(canvas: HTMLCanvasElement, opts?: WebGLOptions): WebGLContextHandle;
+    GetWebGLContext(canvas: HTMLCanvasElement | OffscreenCanvas,
+                    opts?: WebGLOptions): WebGLContextHandle;
+
+    /**
+     * Creates a GrDirectContext from the given WebGL Context.
+     * @param ctx
+     * @deprecated Use MakeWebGLContext instead.
+     */
+    MakeGrContext(ctx: WebGLContextHandle): GrDirectContext | null;
 
     /**
      * Creates a GrDirectContext from the given WebGL Context.
      * @param ctx
      */
-    MakeGrContext(ctx: WebGLContextHandle): GrDirectContext | null;
+    MakeWebGLContext(ctx: WebGLContextHandle): GrDirectContext | null;
 
     /**
      * Creates a Surface that will be drawn to the given GrDirectContext (and show up on screen).
@@ -246,9 +266,54 @@ export interface CanvasKit {
      * @param width - number of pixels of the width of the visible area.
      * @param height - number of pixels of the height of the visible area.
      * @param colorSpace
+     * @param sampleCount - sample count value from GL_SAMPLES. If not provided this will be looked up from
+     *                      the canvas.
+     * @param stencil - stencil count value from GL_STENCIL_BITS. If not provided this will be looked up
+     *                  from the WebGL Context.
      */
     MakeOnScreenGLSurface(ctx: GrDirectContext, width: number, height: number,
+                          colorSpace: ColorSpace, sampleCount?: number, stencil?: number): Surface | null;
+
+    /**
+     * Creates a context that operates over the given WebGPU Device.
+     * @param device
+     */
+    MakeGPUDeviceContext(device: GPUDevice): WebGPUDeviceContext | null;
+
+    /**
+     * Creates a Surface that draws to the given GPU texture.
+     * @param ctx
+     * @param texture - A texture that was created on the GPU device associated with `ctx`.
+     * @param width - Width of the visible region in pixels.
+     * @param height - Height of the visible region in pixels.
+     * @param colorSpace
+     */
+    MakeGPUTextureSurface(ctx: WebGPUDeviceContext, texture: GPUTexture, width: number, height: number,
                           colorSpace: ColorSpace): Surface | null;
+
+    /**
+     * Creates and configures a WebGPU context for the given canvas.
+     * @param ctx
+     * @param canvas
+     * @param opts
+     */
+    MakeGPUCanvasContext(ctx: WebGPUDeviceContext, canvas: HTMLCanvasElement,
+                         opts?: WebGPUCanvasOptions): WebGPUCanvasContext | null;
+
+    /**
+     * Creates a Surface backed by the next available texture in the swapchain associated with the
+     * given WebGPU canvas context. The context must have been already successfully configured using
+     * the same GPUDevice associated with `ctx`.
+     * @param canvasContext - WebGPU context associated with the canvas. The canvas can either be an
+     *                        on-screen HTMLCanvasElement or an OffscreenCanvas.
+     * @param colorSpace
+     * @param width - width of the visible region. If not present, the canvas width from `canvasContext`
+     *                is used.
+     * @param height - height of the visible region. If not present, the canvas width from `canvasContext`
+     *                is used.
+     */
+    MakeGPUCanvasSurface(canvasContext: WebGPUCanvasContext, colorSpace: ColorSpace,
+                         width?: number, height?: number): Surface | null;
 
     /**
      * Returns a (non-visible) Surface on the GPU. It has the given dimensions and uses 8888
@@ -276,8 +341,12 @@ export interface CanvasKit {
      *              the image is destroyed.
      * @param info - If provided, will be used to determine the width/height/format of the
      *               source image. If not, sensible defaults will be used.
+     * @param srcIsPremul - set to true if the src data has premultiplied alpha. Otherwise, it will
+     *         be assumed to be Unpremultiplied. Note: if this is true and info specifies
+     *         Unpremul, Skia will not convert the src pixels first.
      */
-    MakeLazyImageFromTextureSource(src: TextureSource, info?: ImageInfo | PartialImageInfo): Image;
+    MakeLazyImageFromTextureSource(src: TextureSource, info?: ImageInfo | PartialImageInfo,
+                                   srcIsPremul?: boolean): Image;
 
     /**
      * Deletes the associated WebGLContext. Function not available on the CPU version.
@@ -372,6 +441,7 @@ export interface CanvasKit {
     /**
      * Returns a Skottie animation built from the provided json string.
      * Requires that Skottie be compiled into CanvasKit.
+     * Note: this animation will not be able to display text or images.
      * @param json
      */
     MakeAnimation(json: string): SkottieAnimation;
@@ -389,14 +459,6 @@ export interface CanvasKit {
     MakeManagedAnimation(json: string, assets?: Record<string, ArrayBuffer>,
                          filterPrefix?: string, soundMap?: SoundMap): ManagedSkottieAnimation;
 
-    /**
-     * Returns a Particles effect built from the provided json string and assets.
-     * Requires that Particles be compiled into CanvasKit
-     * @param json
-     * @param assets
-     */
-    MakeParticles(json: string, assets?: Record<string, ArrayBuffer>): Particles;
-
     // Constructors, i.e. things made with `new CanvasKit.Foo()`;
     readonly ImageData: ImageDataConstructor;
     readonly ParagraphStyle: ParagraphStyleConstructor;
@@ -404,12 +466,16 @@ export interface CanvasKit {
     readonly Font: FontConstructor;
     readonly Paint: DefaultConstructor<Paint>;
     readonly Path: PathConstructorAndFactory;
+    readonly PathBuilder: PathBuilderConstructor;
     readonly PictureRecorder: DefaultConstructor<PictureRecorder>;
     readonly TextStyle: TextStyleConstructor;
+    readonly SlottableTextProperty: SlottableTextPropertyConstructor;
 
-    // Factories, i.e. things made with CanvasKit.Foo.MakeTurboEncapsulator()
+    // Factories, i.e. things made with CanvasKit.Foo.MakeTurboEncabulator()
     readonly ParagraphBuilder: ParagraphBuilderFactory;
+    readonly Blender: BlenderFactory;
     readonly ColorFilter: ColorFilterFactory;
+    readonly FontCollection: FontCollectionFactory;
     readonly FontMgr: FontMgrFactory;
     readonly ImageFilter: ImageFilterFactory;
     readonly MaskFilter: MaskFilterFactory;
@@ -431,6 +497,7 @@ export interface CanvasKit {
     readonly BlendMode: BlendModeEnumValues;
     readonly BlurStyle: BlurStyleEnumValues;
     readonly ClipOp: ClipOpEnumValues;
+    readonly ColorChannel: ColorChannelEnumValues;
     readonly ColorType: ColorTypeEnumValues;
     readonly FillType: FillTypeEnumValues;
     readonly FilterMode: FilterModeEnumValues;
@@ -440,6 +507,7 @@ export interface CanvasKit {
     readonly ImageFormat: ImageFormatEnumValues;
     readonly MipmapMode: MipmapModeEnumValues;
     readonly PaintStyle: PaintStyleEnumValues;
+    readonly Path1DEffect: Path1DEffectStyleEnumValues;
     readonly PathOp: PathOpEnumValues;
     readonly PointMode: PointModeEnumValues;
     readonly ColorSpace: ColorSpaceEnumValues;
@@ -447,6 +515,8 @@ export interface CanvasKit {
     readonly StrokeJoin: StrokeJoinEnumValues;
     readonly TileMode: TileModeEnumValues;
     readonly VertexMode: VertexModeEnumValues;
+    readonly InputState: InputStateEnumValues;
+    readonly ModifierKey: ModifierKeyEnumValues;
 
     // Core Constants
     readonly TRANSPARENT: Color;
@@ -486,7 +556,6 @@ export interface CanvasKit {
 
     readonly gpu?: boolean; // true if GPU code was compiled in
     readonly managed_skottie?: boolean; // true if advanced (managed) Skottie code was compiled in
-    readonly particles?: boolean; // true if Particles code was compiled in
     readonly rt_effect?: boolean; // true if RuntimeEffect was compiled in
     readonly skottie?: boolean; // true if base Skottie code was compiled in
 
@@ -504,11 +573,18 @@ export interface CanvasKit {
     readonly TextDirection: TextDirectionEnumValues;
     readonly TextHeightBehavior: TextHeightBehaviorEnumValues;
 
+    // other enums
+    readonly VerticalTextAlign: VerticalTextAlignEnumValues;
+    readonly ResizePolicy: ResizePolicyEnumValues;
+
     // Paragraph Constants
     readonly NoDecoration: number;
     readonly UnderlineDecoration: number;
     readonly OverlineDecoration: number;
     readonly LineThroughDecoration: number;
+
+    // Unicode enums
+    readonly CodeUnitFlags: CodeUnitFlagsEnumValues;
 }
 
 export interface Camera {
@@ -532,9 +608,11 @@ export interface Camera {
 /**
  * CanvasKit is built with Emscripten and Embind. Embind adds the following methods to all objects
  * that are exposed with it.
+ * This _type field is necessary for the TypeScript compiler to differentiate
+ * between opaque types such as Shader and ColorFilter. It doesn't exist at runtime.
  */
-export interface EmbindObject<T extends EmbindObject<T>> {
-    clone(): T;
+export interface EmbindObject<T extends string> {
+    _type: T;
     delete(): void;
     deleteLater(): void;
     isAliasOf(other: any): boolean;
@@ -607,11 +685,69 @@ export interface FontStyle {
 /**
  * See GrDirectContext.h for more on this class.
  */
-export interface GrDirectContext extends EmbindObject<GrDirectContext> {
+export interface GrDirectContext extends EmbindObject<"GrDirectContext"> {
     getResourceCacheLimitBytes(): number;
     getResourceCacheUsageBytes(): number;
     releaseResourcesAndAbandonContext(): void;
     setResourceCacheLimitBytes(bytes: number): void;
+}
+
+/**
+ * Represents the context backed by a WebGPU device instance.
+ */
+export type WebGPUDeviceContext = GrDirectContext;
+
+/**
+ * Represents the canvas context and swapchain backed by a WebGPU device.
+ */
+export interface WebGPUCanvasContext {
+    /**
+     * A convenient way to draw multiple frames over the swapchain texture sequence associated with
+     * a canvas element. Each call internally constructs a new Surface that targets the current
+     * GPUTexture in swapchain.
+     *
+     * This requires an environment where a global function called requestAnimationFrame is
+     * available (e.g. on the web, not on Node). The internally created surface is flushed and
+     * destroyed automatically by this wrapper once the `drawFrame` callback returns.
+     *
+     * Users can call canvasContext.requestAnimationFrame in the callback function to
+     * draw multiple frames, e.g. of an animation.
+     */
+    requestAnimationFrame(drawFrame: (_: Canvas) => void): void;
+}
+
+/**
+ * The glyph and grapheme cluster information associated with a code point within
+ * a paragraph.
+ */
+export interface GlyphInfo {
+    /**
+     * The layout bounds of the grapheme cluster the code point belongs to, in
+     * the paragraph's coordinates.
+     *
+     * This width of the rect is horizontal advance of the grapheme cluster,
+     * the height of the rect is the line height when the grapheme cluster
+     * occupies a full line.
+     */
+    graphemeLayoutBounds: Rect;
+    /**
+     * The left-closed-right-open UTF-16 range of the grapheme cluster the code
+     * point belongs to.
+     */
+    graphemeClusterTextRange: URange;
+    /** The writing direction of the grapheme cluster. */
+    dir: TextDirection;
+    /**
+     * Whether the associated glyph points to an ellipsis added by the text
+     * layout library.
+     *
+     * The text layout library truncates the lines that exceed the specified
+     * max line number, and may add an ellipsis to replace the last few code
+     * points near the logical end of the last visible line. If True, this object
+     * marks the logical end of the list of GlyphInfo objects that are
+     * retrievable from the text layout library.
+     */
+    isEllipsis: boolean;
 }
 
 /**
@@ -815,21 +951,143 @@ export interface TextProperty {
     value: TextValue;
 }
 
+/**
+ * Transform property value. Maps to AE styled transform.
+ */
+export interface TransformValue {
+    /**
+     * Anchor point for transform. x and y value.
+     */
+    anchor: Point;
+    /**
+     * Position of transform. x and y value.
+     */
+    position: Point;
+    /**
+     * Scale of transform. x and y value.
+     */
+    scale: Vector2;
+    /**
+     * Rotation of transform in degrees.
+     */
+    rotation: number;
+    /**
+     * Skew to apply during transform.
+     */
+    skew: number;
+    /**
+     * Direction of skew in degrees.
+     */
+    skew_axis: number;
+}
+
+/**
+ * Named transform property for Skottie property observer.
+ */
+export interface TransformProperty {
+    /**
+     * Property identifier, usually the node name.
+     */
+    key: string;
+    /**
+     * Property value.
+     */
+    value: TransformValue;
+}
+
+/**
+ * Collection of slot IDs sorted by value type
+ */
+export interface SlotInfo {
+    colorSlotIDs: string[];
+    scalarSlotIDs: string[];
+    vec2SlotIDs: string[];
+    imageSlotIDs: string[];
+    textSlotIDs: string[];
+}
+
+/**
+ * Text property for ManagedAnimation's slot support
+ */
+export interface SlottableTextProperty {
+    typeface?: Typeface;
+    text?: string;
+
+    textSize?: number;
+    minTextSize?: number;
+    maxTextSize?: number;
+    strokeWidth?: number;
+    lineHeight?: number;
+    lineShift?: number;
+    ascent?: number;
+    maxLines?: number;
+
+    horizAlign?: TextAlignEnumValues;
+    vertAlign?: VerticalTextAlignEnumValues;
+    strokeJoin?: StrokeJoinEnumValues;
+    direction?: TextDirectionEnumValues;
+    linebreak?: LineBreakTypeEnumValues;
+    resize?: ResizePolicyEnumValues;
+
+    boundingBox?: InputRect;
+    fillColor?: InputColor;
+    strokeColor?: InputColor;
+}
+
 export interface ManagedSkottieAnimation extends SkottieAnimation {
     setColor(key: string, color: InputColor): boolean;
     setOpacity(key: string, opacity: number): boolean;
     setText(key: string, text: string, size: number): boolean;
+    setTransform(key: string, anchor: InputPoint, position: InputPoint, scale: InputVector2,
+                 rotation: number, skew: number, skew_axis: number): boolean;
     getMarkers(): AnimationMarker[];
     getColorProps(): ColorProperty[];
     getOpacityProps(): OpacityProperty[];
     getTextProps(): TextProperty[];
+    getTransformProps(): TransformProperty[];
+
+    // Slots in Lottie were exposed with bodymovin version 5.11.0
+    // Properties tracked under the Essential Graphics window in AE will be "slotted". These slots
+    // can be observed and editted live like with the other get/set tools. The slot id passed in
+    // must match the name of the property in the Essential Graphics window. Property Groups support
+    // one-to-many relationships.
+    getSlotInfo(): SlotInfo;
+
+    setColorSlot(key: string, color: InputColor): boolean;
+    setScalarSlot(key: string, scalar: number): boolean;
+    setVec2Slot(key: string, vec2: InputVector2): boolean;
+    setTextSlot(key: string, text: SlottableTextProperty): boolean;
+    setImageSlot(key: string, assetName: string): boolean;
+
+    getColorSlot(key: string): Color | null;
+    getScalarSlot(key: string): number | null;
+    getVec2Slot(key: string): Vector2 | null;
+    getTextSlot(key: string): SlottableTextProperty | null;
+
+    // Attach a WYSIWYG editor to the text layer identified by 'id' and 'index' (multiple layers
+    // can be grouped with the same ID).
+    // Other layers with the same ID are attached as dependents, and updated on the fly as the
+    // edited layer changes.
+    attachEditor(id: string, index: number): boolean;
+
+    // Enable/disable the current editor.
+    enableEditor(enable: boolean): void;
+
+    // Send key events to the active editor.
+    dispatchEditorKey(key: string): boolean;
+
+    // Send pointer events to the active editor, in canvas coordinates.
+    dispatchEditorPointer(x: number, y: number, state: InputState, modifier: ModifierKey): boolean;
+
+    // Adjust the relative cursor weight (default: 1).
+    setEditorCursorWeight(w: number): void;
 }
 
 /**
  * See Paragraph.h for more information on this class. This is only available if Paragraph has
  * been compiled in.
  */
-export interface Paragraph extends EmbindObject<Paragraph> {
+export interface Paragraph extends EmbindObject<"Paragraph"> {
     didExceedMaxLines(): boolean;
     getAlphabeticBaseline(): number;
 
@@ -838,15 +1096,43 @@ export interface Paragraph extends EmbindObject<Paragraph> {
      * with the top left corner as the origin, and +y direction as down.
      */
     getGlyphPositionAtCoordinate(dx: number, dy: number): PositionWithAffinity;
+    /**
+     * Returns the information associated with the closest glyph at the specified
+     * paragraph coordinate, or null if the paragraph is empty.
+     */
+    getClosestGlyphInfoAtCoordinate(dx: number, dy: number): GlyphInfo | null;
+    /**
+     * Returns the information associated with the glyph at the specified UTF-16
+     * offset within the paragraph's visible lines, or null if the index is out
+     * of bounds, or points to a codepoint that is logically after the last
+     * visible codepoint.
+     */
+    getGlyphInfoAt(index: number): GlyphInfo | null;
 
     getHeight(): number;
     getIdeographicBaseline(): number;
+    /**
+     * Returns the line number of the line that contains the specified UTF-16
+     * offset within the paragraph, or -1 if the index is out of bounds, or
+     * points to a codepoint that is logically after the last visible codepoint.
+     */
+    getLineNumberAt(index: number): number;
     getLineMetrics(): LineMetrics[];
+    /**
+     * Returns the LineMetrics of the line at the specified line number, or null
+     * if the line number is out of bounds, or is larger than or equal to the
+     * specified max line number.
+     */
+    getLineMetricsAt(lineNumber: number): LineMetrics | null;
     getLongestLine(): number;
     getMaxIntrinsicWidth(): number;
     getMaxWidth(): number;
     getMinIntrinsicWidth(): number;
-    getRectsForPlaceholders(): FlattenedRectangleArray;
+    /**
+     * Returns the total number of visible lines in the paragraph.
+     */
+    getNumberOfLines(): number;
+    getRectsForPlaceholders(): RectWithDirection[];
 
     /**
      * Returns bounding boxes that enclose all text in the range of glpyh indexes [start, end).
@@ -856,7 +1142,7 @@ export interface Paragraph extends EmbindObject<Paragraph> {
      * @param wStyle
      */
     getRectsForRange(start: number, end: number, hStyle: RectHeightStyle,
-                     wStyle: RectWidthStyle): FlattenedRectangleArray;
+                     wStyle: RectWidthStyle): RectWithDirection[];
 
     /**
      * Finds the first and last glyphs that define a word containing the glyph at index offset.
@@ -874,9 +1160,15 @@ export interface Paragraph extends EmbindObject<Paragraph> {
      * @param width
      */
     layout(width: number): void;
+
+    /**
+     * When called after shaping, returns the glyph IDs which were not matched
+     * by any of the provided fonts.
+     */
+    unresolvedCodepoints(): number[];
 }
 
-export interface ParagraphBuilder extends EmbindObject<ParagraphBuilder> {
+export interface ParagraphBuilder extends EmbindObject<"ParagraphBuilder"> {
     /**
      * Pushes the information required to leave an open space.
      * @param width
@@ -902,6 +1194,75 @@ export interface ParagraphBuilder extends EmbindObject<ParagraphBuilder> {
     build(): Paragraph;
 
     /**
+     * @param words is an array of word edges (starting or ending). You can
+     * pass 2 elements (0 as a start of the entire text and text.size as the
+     * end). This information is only needed for a specific API method getWords.
+     *
+     * The indices are expected to be relative to the UTF-8 representation of
+     * the text.
+     */
+    setWordsUtf8(words: InputWords): void;
+    /**
+     * @param words is an array of word edges (starting or ending). You can
+     * pass 2 elements (0 as a start of the entire text and text.size as the
+     * end). This information is only needed for a specific API method getWords.
+     *
+     * The indices are expected to be relative to the UTF-16 representation of
+     * the text.
+     *
+     * The `Intl.Segmenter` API can be used as a source for this data.
+     */
+    setWordsUtf16(words: InputWords): void;
+
+    /**
+     * @param graphemes is an array of indexes in the input text that point
+     * to the start of each grapheme.
+     *
+     * The indices are expected to be relative to the UTF-8 representation of
+     * the text.
+     */
+    setGraphemeBreaksUtf8(graphemes: InputGraphemes): void;
+    /**
+     * @param graphemes is an array of indexes in the input text that point
+     * to the start of each grapheme.
+     *
+     * The indices are expected to be relative to the UTF-16 representation of
+     * the text.
+     *
+     * The `Intl.Segmenter` API can be used as a source for this data.
+     */
+    setGraphemeBreaksUtf16(graphemes: InputGraphemes): void;
+
+    /**
+     * @param lineBreaks is an array of unsigned integers that should be
+     * treated as pairs (index, break type) that point to the places of possible
+     * line breaking if needed. It should include 0 as the first element.
+     * Break type == 0 means soft break, break type == 1 is a hard break.
+     *
+     * The indices are expected to be relative to the UTF-8 representation of
+     * the text.
+     */
+    setLineBreaksUtf8(lineBreaks: InputLineBreaks): void;
+    /**
+     * @param lineBreaks is an array of unsigned integers that should be
+     * treated as pairs (index, break type) that point to the places of possible
+     * line breaking if needed. It should include 0 as the first element.
+     * Break type == 0 means soft break, break type == 1 is a hard break.
+     *
+     * The indices are expected to be relative to the UTF-16 representation of
+     * the text.
+     *
+     * Chrome's `v8BreakIterator` API can be used as a source for this data.
+     */
+    setLineBreaksUtf16(lineBreaks: InputLineBreaks): void;
+
+    /**
+     * Returns the entire Paragraph text (which is useful in case that text
+     * was produced as a set of addText calls).
+     */
+    getText(): string;
+
+    /**
      * Remove a style from the stack. Useful to apply different styles to chunks
      * of text such as bolding.
      */
@@ -921,6 +1282,12 @@ export interface ParagraphBuilder extends EmbindObject<ParagraphBuilder> {
      * @param bg
      */
     pushPaintStyle(textStyle: TextStyle, fg: Paint, bg: Paint): void;
+
+    /**
+     * Resets this builder to its initial state, discarding any text, styles, placeholders that have
+     * been added, but keeping the initial ParagraphStyle.
+     */
+    reset(): void;
 }
 
 export interface ParagraphStyle {
@@ -928,11 +1295,13 @@ export interface ParagraphStyle {
     ellipsis?: string;
     heightMultiplier?: number;
     maxLines?: number;
+    replaceTabCharacters?: boolean;
     strutStyle?: StrutStyle;
     textAlign?: TextAlign;
     textDirection?: TextDirection;
     textHeightBehavior?: TextHeightBehavior;
     textStyle?: TextStyle;
+    applyRoundingHack?: boolean;
 }
 
 export interface PositionWithAffinity {
@@ -940,83 +1309,18 @@ export interface PositionWithAffinity {
     affinity: Affinity;
 }
 
-/**
- * See SkParticleEffect.h for more details.
- */
-export interface Particles extends EmbindObject<Particles> {
-    /**
-     * Draws the current state of the particles on the given canvas.
-     * @param canvas
-     */
-    draw(canvas: Canvas): void;
-
-    /**
-     * Returns a Float32Array bound to the WASM memory of these uniforms. Changing these
-     * floats will change the corresponding uniforms instantly.
-     */
-    uniforms(): Float32Array;
-
-    /**
-     * Returns the nth uniform from the effect.
-     * @param index
-     */
-    getUniform(index: number): SkSLUniform;
-
-    /**
-     * Returns the number of uniforms on the effect.
-     */
-    getUniformCount(): number;
-
-    /**
-     * Returns the total number of floats across all uniforms on the effect. This is the length
-     * of the array returned by `uniforms()`. For example, an effect with a single float3 uniform,
-     * would return 1 from `getUniformCount()`, but 3 from `getUniformFloatCount()`.
-     */
-    getUniformFloatCount(): number;
-
-    /**
-     * Returns the name of the nth effect uniform.
-     * @param index
-     */
-    getUniformName(index: number): string;
-
-    /**
-     * Sets the base position of the effect.
-     * @param point
-     */
-    setPosition(point: InputPoint): void;
-
-    /**
-     * Sets the base rate of the effect.
-     * @param rate
-     */
-    setRate(rate: number): void;
-
-    /**
-     * Starts playing the effect.
-     * @param now
-     * @param looping
-     */
-    start(now: number, looping: boolean): void;
-
-    /**
-     * Updates the effect using the new time.
-     * @param now
-     */
-    update(now: number): void;
-}
-
 export interface SkSLUniform {
     columns: number;
     rows: number;
     /** The index into the uniforms array that this uniform begins. */
     slot: number;
+    isInteger: boolean;
 }
 
 /**
  * See SkAnimatedImage.h for more information on this class.
  */
-export interface AnimatedImage extends EmbindObject<AnimatedImage> {
+export interface AnimatedImage extends EmbindObject<"AnimatedImage"> {
     /**
      * Returns the length of the current frame in ms.
      */
@@ -1059,9 +1363,14 @@ export interface AnimatedImage extends EmbindObject<AnimatedImage> {
 }
 
 /**
+ * See SkBlender.h for more on this class. The objects are opaque.
+ */
+export type Blender = EmbindObject<"Blender">;
+
+/**
  * See SkCanvas.h for more information on this class.
  */
-export interface Canvas extends EmbindObject<Canvas> {
+export interface Canvas extends EmbindObject<"Canvas"> {
     /**
      * Fills the current clip with the given color using Src BlendMode.
      * This has the effect of replacing all pixels contained by clip with color.
@@ -1384,7 +1693,7 @@ export interface Canvas extends EmbindObject<Canvas> {
      * @param lightRadius - The radius of the disc light.
      * @param ambientColor - The color of the ambient shadow.
      * @param spotColor -  The color of the spot shadow.
-     * @param flags - See SkShadowFlags.h; 0 means use default options.
+     * @param flags - See SkShadowUtils.h; 0 means use default options.
      */
     drawShadow(path: Path, zPlaneParams: InputVector3, lightPos: InputVector3, lightRadius: number,
                ambientColor: InputColor, spotColor: InputColor, flags: number): void;
@@ -1422,6 +1731,21 @@ export interface Canvas extends EmbindObject<Canvas> {
      * @param paint
      */
     drawVertices(verts: Vertices, mode: BlendMode, paint: Paint): void;
+
+    /**
+     * Returns the bounds of clip, unaffected by the canvas's matrix.
+     * If the clip is empty, all four integers in the returned rectangle will equal zero.
+     *
+     * @param output - if provided, the results will be copied into the given array instead of
+     *      allocating a new one.
+     */
+    getDeviceClipBounds(output?: IRect): IRect;
+
+    /**
+     * Returns true if the given rect, transformed by the current canvas
+     * transform, can be quickly determined to fall entirely outside the clip.
+     */
+    quickReject(rect: InputRect): boolean;
 
     /**
      * Returns the current transform from local coordinates to the 'device', which for most
@@ -1470,7 +1794,7 @@ export interface Canvas extends EmbindObject<Canvas> {
      *          not supported in JS, so that colorType corresponds to raw bytes Uint8Array.
      */
     readPixels(srcX: number, srcY: number, imageInfo: ImageInfo, dest?: MallocObj,
-               bytesPerRow?: number): Uint8Array | Float32Array | null;
+               bytesPerRow?: number): Float32Array | Uint8Array | null;
 
     /**
      * Removes changes to the current matrix and clip since Canvas state was
@@ -1507,9 +1831,10 @@ export interface Canvas extends EmbindObject<Canvas> {
      * @param bounds
      * @param backdrop
      * @param flags
+     * @param backdropFilterTileMode
      */
     saveLayer(paint?: Paint, bounds?: InputRect | null, backdrop?: ImageFilter | null,
-              flags?: SaveLayerFlag): number;
+              flags?: SaveLayerFlag, backdropFilterTileMode?: TileMode): number;
 
     /**
      * Scales the current matrix by sx on the x-axis and sy on the y-axis.
@@ -1554,9 +1879,9 @@ export interface Canvas extends EmbindObject<Canvas> {
 /**
  * See SkColorFilter.h for more on this class. The objects are opaque.
  */
-export type ColorFilter = EmbindObject<ColorFilter>;
+export type ColorFilter = EmbindObject<"ColorFilter">;
 
-export interface ContourMeasureIter extends EmbindObject<ContourMeasureIter> {
+export interface ContourMeasureIter extends EmbindObject<"ContourMeasureIter"> {
     /**
      *  Iterates through contours in path, returning a contour-measure object for each contour
      *  in the path. Returns null when it is done.
@@ -1566,7 +1891,7 @@ export interface ContourMeasureIter extends EmbindObject<ContourMeasureIter> {
     next(): ContourMeasure | null;
 }
 
-export interface ContourMeasure extends EmbindObject<ContourMeasure> {
+export interface ContourMeasure extends EmbindObject<"ContourMeasure"> {
     /**
      * Returns the given position and tangent line for the distance on the given contour.
      * The return value is 4 floats in this order: posX, posY, vecX, vecY.
@@ -1605,7 +1930,7 @@ export interface FontMetrics {
 /**
  * See SkFont.h for more on this class.
  */
-export interface Font extends EmbindObject<Font> {
+export interface Font extends EmbindObject<"Font"> {
     /**
      * Returns the FontMetrics for this font.
      */
@@ -1756,7 +2081,7 @@ export interface Font extends EmbindObject<Font> {
 /**
  * See SkFontMgr.h for more details
  */
-export interface FontMgr extends EmbindObject<FontMgr> {
+export interface FontMgr extends EmbindObject<"FontMgr"> {
     /**
      * Return the number of font families loaded in this manager. Useful for debugging.
      */
@@ -1767,12 +2092,17 @@ export interface FontMgr extends EmbindObject<FontMgr> {
      * @param index
      */
     getFamilyName(index: number): string;
+
+    /**
+     * Find the closest matching typeface to the specified familyName and style.
+     */
+    matchFamilyStyle(name: string, style: FontStyle): Typeface;
 }
 
 /**
  * See SkImage.h for more information on this class.
  */
-export interface Image extends EmbindObject<Image> {
+export interface Image extends EmbindObject<"Image"> {
     /**
      * Encodes this image's pixels to the specified format and returns them. Must be built with
      * the specified codec. If the options are unspecified, sensible defaults will be
@@ -1847,7 +2177,7 @@ export interface Image extends EmbindObject<Image> {
      *          not supported in JS, so that colorType corresponds to raw bytes Uint8Array.
      */
     readPixels(srcX: number, srcY: number, imageInfo: ImageInfo, dest?: MallocObj,
-               bytesPerRow?: number): Uint8Array | Float32Array | null;
+               bytesPerRow?: number): Float32Array | Uint8Array | null;
 
     /**
      * Return the width in pixels of the image.
@@ -1858,7 +2188,21 @@ export interface Image extends EmbindObject<Image> {
 /**
  * See ImageFilter.h for more on this class. The objects are opaque.
  */
-export type ImageFilter = EmbindObject<ImageFilter>;
+export interface ImageFilter extends EmbindObject<"ImageFilter"> {
+    /**
+     * Returns an IRect that is the updated bounds of inputRect after this
+     * filter has been applied.
+     *
+     * @param drawBounds - The local (pre-transformed) bounding box of the
+     *        geometry being drawn _before_ the filter is applied.
+     * @param ctm - If provided, the current transform at the time the filter
+     *        would be used.
+     * @param outputRect - If provided, the result will be output to this array
+     *        rather than allocating a new one.
+     * @returns an IRect describing the updated bounds.
+     */
+    getOutputBounds(drawBounds: Rect, ctm?: InputMatrix, outputRect?: IRect): IRect;
+}
 
 export interface ImageInfo {
     alphaType: AlphaType;
@@ -1894,12 +2238,12 @@ export interface FilterOptions {
 /**
  * See SkMaskFilter.h for more on this class. The objects are opaque.
  */
-export type MaskFilter = EmbindObject<MaskFilter>;
+export type MaskFilter = EmbindObject<"MaskFilter">;
 
 /**
  * See SkPaint.h for more information on this class.
  */
-export interface Paint extends EmbindObject<Paint> {
+export interface Paint extends EmbindObject<"Paint"> {
     /**
      * Returns a copy of this paint.
      */
@@ -1952,6 +2296,18 @@ export interface Paint extends EmbindObject<Paint> {
     setBlendMode(mode: BlendMode): void;
 
     /**
+     * Sets the current blender, increasing its refcnt, and if a blender is already
+     * present, decreasing that object's refcnt.
+     *
+     * * A nullptr blender signifies the default SrcOver behavior.
+     *
+     * * For convenience, you can call setBlendMode() if the blend effect can be expressed
+     * as one of those values.
+     * @param blender
+     */
+    setBlender(blender: Blender): void;
+
+    /**
      * Sets alpha and RGB used when stroking and filling. The color is four floating
      * point values, unpremultiplied. The color values are interpreted as being in
      * the provided colorSpace.
@@ -1976,7 +2332,7 @@ export interface Paint extends EmbindObject<Paint> {
      * Sets the current color filter, replacing the existing one if there was one.
      * @param filter
      */
-    setColorFilter(filter: ColorFilter): void;
+    setColorFilter(filter: ColorFilter | null): void;
 
     /**
      * Sets the color used when stroking and filling. The color values are interpreted as being in
@@ -1987,28 +2343,34 @@ export interface Paint extends EmbindObject<Paint> {
     setColorInt(color: ColorInt, colorSpace?: ColorSpace): void;
 
     /**
+     * Requests, but does not require, to distribute color error.
+     * @param shouldDither
+     */
+    setDither(shouldDither: boolean): void;
+
+    /**
      * Sets the current image filter, replacing the existing one if there was one.
      * @param filter
      */
-    setImageFilter(filter: ImageFilter): void;
+    setImageFilter(filter: ImageFilter | null): void;
 
     /**
      * Sets the current mask filter, replacing the existing one if there was one.
      * @param filter
      */
-    setMaskFilter(filter: MaskFilter): void;
+    setMaskFilter(filter: MaskFilter | null): void;
 
     /**
      * Sets the current path effect, replacing the existing one if there was one.
      * @param effect
      */
-    setPathEffect(effect: PathEffect): void;
+    setPathEffect(effect: PathEffect | null): void;
 
     /**
      * Sets the current shader, replacing the existing one if there was one.
      * @param shader
      */
-    setShader(shader: Shader): void;
+    setShader(shader: Shader | null): void;
 
     /**
      * Sets the geometry drawn at the beginning and end of strokes.
@@ -2043,151 +2405,10 @@ export interface Paint extends EmbindObject<Paint> {
 
 /**
  * See SkPath.h for more information on this class.
+ * A Path is immutable. See PathBuilder for how to construct a path
+ * in a mutable fashion.
  */
-export interface Path extends EmbindObject<Path> {
-    /**
-     * Appends arc to Path, as the start of new contour. Arc added is part of ellipse
-     * bounded by oval, from startAngle through sweepAngle. Both startAngle and
-     * sweepAngle are measured in degrees, where zero degrees is aligned with the
-     * positive x-axis, and positive sweeps extends arc clockwise.
-     * Returns the modified path for easier chaining.
-     * @param oval
-     * @param startAngle
-     * @param sweepAngle
-     */
-    addArc(oval: InputRect, startAngle: AngleInDegrees, sweepAngle: AngleInDegrees): Path;
-
-    /**
-     * Adds oval to Path, appending kMove_Verb, four kConic_Verb, and kClose_Verb.
-     * Oval is upright ellipse bounded by Rect oval with radii equal to half oval width
-     * and half oval height. Oval begins at start and continues clockwise by default.
-     * Returns the modified path for easier chaining.
-     * @param oval
-     * @param isCCW - if the path should be drawn counter-clockwise or not
-     * @param startIndex - index of initial point of ellipse
-     */
-    addOval(oval: InputRect, isCCW?: boolean, startIndex?: number): Path;
-
-    /**
-     * Takes 1, 2, 7, or 10 required args, where the first arg is always the path.
-     * The last arg is an optional boolean and chooses between add or extend mode.
-     * The options for the remaining args are:
-     *   - an array of 6 or 9 parameters (perspective is optional)
-     *   - the 9 parameters of a full matrix or
-     *     the 6 non-perspective params of a matrix.
-     * Returns the modified path for easier chaining (or null if params were incorrect).
-     * @param args
-     */
-    addPath(...args: any[]): Path | null;
-
-    /**
-     * Adds contour created from array of n points, adding (count - 1) line segments.
-     * Contour added starts at pts[0], then adds a line for every additional point
-     * in pts array. If close is true, appends kClose_Verb to Path, connecting
-     * pts[count - 1] and pts[0].
-     * Returns the modified path for easier chaining.
-     * @param points
-     * @param close - if true, will add a line connecting last point to the first point.
-     */
-    addPoly(points: InputFlattenedPointArray, close: boolean): Path;
-
-    /**
-     * Adds Rect to Path, appending kMove_Verb, three kLine_Verb, and kClose_Verb,
-     * starting with top-left corner of Rect; followed by top-right, bottom-right,
-     * and bottom-left if isCCW is false; or followed by bottom-left,
-     * bottom-right, and top-right if isCCW is true.
-     * Returns the modified path for easier chaining.
-     * @param rect
-     * @param isCCW
-     */
-    addRect(rect: InputRect, isCCW?: boolean): Path;
-
-    /**
-     * Adds rrect to Path, creating a new closed contour.
-     * Returns the modified path for easier chaining.
-     * @param rrect
-     * @param isCCW
-     */
-    addRRect(rrect: InputRRect, isCCW?: boolean): Path;
-
-    /**
-     * Adds the given verbs and associated points/weights to the path. The process
-     * reads the first verb from verbs and then the appropriate number of points from the
-     * FlattenedPointArray (e.g. 2 points for moveTo, 4 points for quadTo, etc). If the verb is
-     * a conic, a weight will be read from the WeightList.
-     * Returns the modified path for easier chaining
-     * @param verbs - the verbs that create this path, in the order of being drawn.
-     * @param points - represents n points with 2n floats.
-     * @param weights - used if any of the verbs are conics, can be omitted otherwise.
-     */
-    addVerbsPointsWeights(verbs: VerbList, points: InputFlattenedPointArray,
-                          weights?: WeightList): Path;
-
-    /**
-     * Adds an arc to this path, emulating the Canvas2D behavior.
-     * Returns the modified path for easier chaining.
-     * @param x
-     * @param y
-     * @param radius
-     * @param startAngle
-     * @param endAngle
-     * @param isCCW
-     */
-    arc(x: number, y: number, radius: number, startAngle: AngleInRadians, endAngle: AngleInRadians,
-        isCCW?: boolean): Path;
-
-    /**
-     * Appends arc to Path. Arc added is part of ellipse
-     * bounded by oval, from startAngle through sweepAngle. Both startAngle and
-     * sweepAngle are measured in degrees, where zero degrees is aligned with the
-     * positive x-axis, and positive sweeps extends arc clockwise.
-     * Returns the modified path for easier chaining.
-     * @param oval
-     * @param startAngle
-     * @param endAngle
-     * @param forceMoveTo
-     */
-    arcToOval(oval: InputRect, startAngle: AngleInDegrees, endAngle: AngleInDegrees,
-              forceMoveTo: boolean): Path;
-
-    /**
-     * Appends arc to Path. Arc is implemented by one or more conics weighted to
-     * describe part of oval with radii (rx, ry) rotated by xAxisRotate degrees. Arc
-     * curves from last Path Point to (x, y), choosing one of four possible routes:
-     * clockwise or counterclockwise, and smaller or larger. See SkPath.h for more details.
-     * Returns the modified path for easier chaining.
-     * @param rx
-     * @param ry
-     * @param xAxisRotate
-     * @param useSmallArc
-     * @param isCCW
-     * @param x
-     * @param y
-     */
-    arcToRotated(rx: number, ry: number, xAxisRotate: AngleInDegrees, useSmallArc: boolean,
-                 isCCW: boolean, x: number, y: number): Path;
-
-    /**
-     * Appends arc to Path, after appending line if needed. Arc is implemented by conic
-     * weighted to describe part of circle. Arc is contained by tangent from
-     * last Path point to (x1, y1), and tangent from (x1, y1) to (x2, y2). Arc
-     * is part of circle sized to radius, positioned so it touches both tangent lines.
-     * Returns the modified path for easier chaining.
-     * @param x1
-     * @param y1
-     * @param x2
-     * @param y2
-     * @param radius
-     */
-    arcToTangent(x1: number, y1: number, x2: number, y2: number, radius: number): Path;
-
-    /**
-     * Appends CLOSE_VERB to Path. A closed contour connects the first and last point
-     * with a line, forming a continuous loop.
-     * Returns the modified path for easier chaining.
-     */
-    close(): Path;
-
+export interface Path extends EmbindObject<"Path"> {
     /**
      * Returns minimum and maximum axes values of the lines and curves in Path.
      * Returns (0, 0, 0, 0) if Path contains no points.
@@ -2202,19 +2423,6 @@ export interface Path extends EmbindObject<Path> {
      *                      allocating a new one.
      */
     computeTightBounds(outputArray?: Rect): Rect;
-
-    /**
-     * Adds conic from last point towards (x1, y1), to (x2, y2), weighted by w.
-     * If Path is empty, or path is closed, the last point is set to (0, 0)
-     * before adding conic.
-     * Returns the modified path for easier chaining.
-     * @param x1
-     * @param y1
-     * @param x2
-     * @param y2
-     * @param w
-     */
-    conicTo(x1: number, y1: number, x2: number, y2: number, w: number): Path;
 
     /**
      * Returns true if the point (x, y) is contained by Path, taking into
@@ -2233,28 +2441,6 @@ export interface Path extends EmbindObject<Path> {
      * Returns the number of points in this path. Initially zero.
      */
     countPoints(): number;
-
-    /**
-     *  Adds cubic from last point towards (x1, y1), then towards (x2, y2), ending at
-     * (x3, y3). If Path is empty, or path is closed, the last point is set to
-     * (0, 0) before adding cubic.
-     * @param cpx1
-     * @param cpy1
-     * @param cpx2
-     * @param cpy2
-     * @param x
-     * @param y
-     */
-    cubicTo(cpx1: number, cpy1: number, cpx2: number, cpy2: number, x: number, y: number): Path;
-
-    /**
-     * Changes this path to be the dashed version of itself. This is the same effect as creating
-     * a DashPathEffect and calling filterPath on this path.
-     * @param on
-     * @param off
-     * @param phase
-     */
-    dash(on: number, off: number, phase: number): boolean;
 
     /**
      * Returns true if other path is equal to this path.
@@ -2291,23 +2477,6 @@ export interface Path extends EmbindObject<Path> {
     isEmpty(): boolean;
 
     /**
-     * Returns true if the path is volatile; it will not be altered or discarded
-     * by the caller after it is drawn. Path by default have volatile set false, allowing
-     * Surface to attach a cache of data which speeds repeated drawing. If true, Surface
-     * may not speed repeated drawing.
-     */
-    isVolatile(): boolean;
-
-    /**
-     * Adds line from last point to (x, y). If Path is empty, or last path is closed,
-     * last point is set to (0, 0) before adding line.
-     * Returns the modified path for easier chaining.
-     * @param x
-     * @param y
-     */
-    lineTo(x: number, y: number): Path;
-
-    /**
      * Returns a new path that covers the same area as the original path, but with the
      * Winding FillType. This may re-draw some contours in the path as counter-clockwise
      * instead of clockwise to achieve that effect. If such a transformation cannot
@@ -2316,145 +2485,53 @@ export interface Path extends EmbindObject<Path> {
     makeAsWinding(): Path | null;
 
     /**
-     * Adds beginning of contour at the given point.
-     * Returns the modified path for easier chaining.
-     * @param x
-     * @param y
-     */
-    moveTo(x: number, y: number): Path;
-
-    /**
-     * Translates all the points in the path by dx, dy.
-     * Returns the modified path for easier chaining.
-     * @param dx
-     * @param dy
-     */
-    offset(dx: number, dy: number): Path;
-
-    /**
-     * Combines this path with the other path using the given PathOp. Returns false if the operation
-     * fails.
+     * Returns a new path made from combining this path with the other path using the given PathOp.
+     * Returns null if the operation fails.
      * @param other
      * @param op
      */
-    op(other: Path, op: PathOp): boolean;
+    makeCombined(other: Path, op: PathOp): Path | null;
 
     /**
-     * Adds quad from last point towards (x1, y1), to (x2, y2).
-     * If Path is empty, or path is closed, last point is set to (0, 0) before adding quad.
-     * Returns the modified path for easier chaining.
-     * @param x1
-     * @param y1
-     * @param x2
-     * @param y2
+     * Returns the dashed version of this path. This is the same effect as creating
+     * a DashPathEffect and calling filterPath on this path.
+     * @param on
+     * @param off
+     * @param phase
      */
-    quadTo(x1: number, y1: number, x2: number, y2: number): Path;
+    makeDashed(on: number, off: number, phase: number): Path | null;
 
     /**
-     * Relative version of arcToRotated.
-     * @param rx
-     * @param ry
-     * @param xAxisRotate
-     * @param useSmallArc
-     * @param isCCW
-     * @param dx
-     * @param dy
+     * Return the set of non-overlapping contours that describe the
+     * same area as this original path.
+     * The curve order is reduced where possible so that cubics may
+     * be turned into quadratics, and quadratics maybe turned into lines.
      */
-    rArcTo(rx: number, ry: number, xAxisRotate: AngleInDegrees, useSmallArc: boolean,
-           isCCW: boolean, dx: number, dy: number): Path;
+    makeSimplified(): Path | null;
+
+   /**
+    * Take start and stop "t" values (values between 0...1) and return a subset of this path.
+    * The trim values apply to the entire path, so if it contains several contours, all of them
+    * are including in the calculation.
+    * Null is returned if either input value is NaN.
+    * @param startT - a value in the range [0.0, 1.0]. 0.0 is the beginning of the path.
+    * @param stopT  - a value in the range [0.0, 1.0]. 1.0 is the end of the path.
+    * @param isComplement
+    */
+    makeTrimmed(startT: number, stopT: number, isComplement: boolean): Path | null;
 
     /**
-     * Relative version of conicTo.
-     * @param dx1
-     * @param dy1
-     * @param dx2
-     * @param dy2
-     * @param w
+     * Returns the the filled equivalent of the stroked path. Returns null if the operation
+     * fails (e.g. the path is a hairline).
+     * @param opts - describe how stroked path should look.
      */
-    rConicTo(dx1: number, dy1: number, dx2: number, dy2: number, w: number): Path;
-
-    /**
-     * Relative version of cubicTo.
-     * @param cpx1
-     * @param cpy1
-     * @param cpx2
-     * @param cpy2
-     * @param x
-     * @param y
-     */
-    rCubicTo(cpx1: number, cpy1: number, cpx2: number, cpy2: number, x: number, y: number): Path;
-
-    /**
-     * Sets Path to its initial state.
-     * Removes verb array, point array, and weights, and sets FillType to Winding.
-     * Internal storage associated with Path is released
-     */
-    reset(): void;
-
-    /**
-     * Sets Path to its initial state.
-     * Removes verb array, point array, and weights, and sets FillType to Winding.
-     * Internal storage associated with Path is *not* released.
-     * Use rewind() instead of reset() if Path storage will be reused and performance
-     * is critical.
-     */
-    rewind(): void;
-
-    /**
-     * Relative version of lineTo.
-     * @param x
-     * @param y
-     */
-    rLineTo(x: number, y: number): Path;
-
-    /**
-     * Relative version of moveTo.
-     * @param x
-     * @param y
-     */
-    rMoveTo(x: number, y: number): Path;
-
-    /**
-     * Relative version of quadTo.
-     * @param x1
-     * @param y1
-     * @param x2
-     * @param y2
-     */
-    rQuadTo(x1: number, y1: number, x2: number, y2: number): Path;
+    makeStroked(opts?: StrokeOpts): Path | null;
 
     /**
      * Sets FillType, the rule used to fill Path.
      * @param fill
      */
     setFillType(fill: FillType): void;
-
-    /**
-     * Specifies whether Path is volatile; whether it will be altered or discarded
-     * by the caller after it is drawn. Path by default have volatile set false.
-     *
-     * Mark animating or temporary paths as volatile to improve performance.
-     * Mark unchanging Path non-volatile to improve repeated rendering.
-     * @param volatile
-     */
-    setIsVolatile(volatile: boolean): void;
-
-    /**
-     * Set this path to a set of non-overlapping contours that describe the
-     * same area as the original path.
-     * The curve order is reduced where possible so that cubics may
-     * be turned into quadratics, and quadratics maybe turned into lines.
-     *
-     * Returns true if operation was able to produce a result.
-     */
-    simplify(): boolean;
-
-    /**
-     * Turns this path into the filled equivalent of the stroked path. Returns null if the operation
-     * fails (e.g. the path is a hairline).
-     * @param opts - describe how stroked path should look.
-     */
-    stroke(opts?: StrokeOpts): Path | null;
 
     /**
      * Serializes the contents of this path as a series of commands.
@@ -2467,30 +2544,349 @@ export interface Path extends EmbindObject<Path> {
      * Returns this path as an SVG string.
      */
     toSVGString(): string;
+}
+
+export interface PathBuilder extends EmbindObject<"SkPathBuilder"> {
+    /**
+     * Appends arc to Path, as the start of new contour. Arc added is part of ellipse
+     * bounded by oval, from startAngle through sweepAngle. Both startAngle and
+     * sweepAngle are measured in degrees, where zero degrees is aligned with the
+     * positive x-axis, and positive sweeps extends arc clockwise.
+     * Returns the modified path for easier chaining.
+     * @param oval
+     * @param startAngle
+     * @param sweepAngle
+     */
+    addArc(oval: InputRect, startAngle: AngleInDegrees, sweepAngle: AngleInDegrees): PathBuilder;
+
+    /**
+     * Adds circle centered at (x, y) of size radius to the path.
+     * Has no effect if radius is zero or negative.
+     *
+     * @param x       center of circle
+     * @param y       center of circle
+     * @param radius  distance from center to edge
+     * @param isCCW - if the path should be drawn counter-clockwise or not
+     * @return        reference to SkPath
+     */
+    addCircle(x: number, y: number, r: number, isCCW?: boolean): PathBuilder;
+
+    /**
+     * Adds oval to Path, appending kMove_Verb, four kConic_Verb, and kClose_Verb.
+     * Oval is upright ellipse bounded by Rect oval with radii equal to half oval width
+     * and half oval height. Oval begins at start and continues clockwise by default.
+     * Returns the modified path for easier chaining.
+     * @param oval
+     * @param isCCW - if the path should be drawn counter-clockwise or not
+     * @param startIndex - index of initial point of ellipse
+     */
+    addOval(oval: InputRect, isCCW?: boolean, startIndex?: number): PathBuilder;
+
+    /**
+     * Takes 1, 2, 7, or 10 required args, where the first arg is always the path.
+     * The last arg is an optional boolean and chooses between add or extend mode.
+     * The options for the remaining args are:
+     *   - an array of 6 or 9 parameters (perspective is optional)
+     *   - the 9 parameters of a full matrix or
+     *     the 6 non-perspective params of a matrix.
+     * Returns the modified path for easier chaining (or null if params were incorrect).
+     * @param args
+     */
+    addPath(...args: any[]): PathBuilder | null;
+
+    /**
+     * Adds contour created from array of n points, adding (count - 1) line segments.
+     * Contour added starts at pts[0], then adds a line for every additional point
+     * in pts array. If close is true, appends kClose_Verb to Path, connecting
+     * pts[count - 1] and pts[0].
+     * Returns the modified path for easier chaining.
+     * @param points
+     * @param close - if true, will add a line connecting last point to the first point.
+     */
+    addPolygon(points: InputFlattenedPointArray, close: boolean): PathBuilder;
+
+    /**
+     * Adds Rect to Path, appending kMove_Verb, three kLine_Verb, and kClose_Verb,
+     * starting with top-left corner of Rect; followed by top-right, bottom-right,
+     * and bottom-left if isCCW is false; or followed by bottom-left,
+     * bottom-right, and top-right if isCCW is true.
+     * Returns the modified path for easier chaining.
+     * @param rect
+     * @param isCCW
+     */
+    addRect(rect: InputRect, isCCW?: boolean): PathBuilder;
+
+    /**
+     * Adds rrect to Path, creating a new closed contour.
+     * Returns the modified path for easier chaining.
+     * @param rrect
+     * @param isCCW
+     */
+    addRRect(rrect: InputRRect, isCCW?: boolean): PathBuilder;
+
+    /**
+     * Adds the given verbs and associated points/weights to the path. The process
+     * reads the first verb from verbs and then the appropriate number of points from the
+     * FlattenedPointArray (e.g. 2 points for moveTo, 4 points for quadTo, etc). If the verb is
+     * a conic, a weight will be read from the WeightList.
+     * The verb list should start with a moveTo since the previous location will
+     * be lost.
+     * Returns the modified path for easier chaining
+     * @param verbs - the verbs that create this path, in the order of being drawn.
+     * @param points - represents n points with 2n floats.
+     * @param weights - used if any of the verbs are conics, can be omitted otherwise.
+     */
+    addVerbsPointsWeights(verbs: VerbList, points: InputFlattenedPointArray,
+                          weights?: WeightList): PathBuilder;
+
+    /**
+     * Adds an arc to this path, emulating the Canvas2D behavior.
+     * Returns the modified path for easier chaining.
+     * @param x
+     * @param y
+     * @param radius
+     * @param startAngle
+     * @param endAngle
+     * @param isCCW
+     */
+    arc(x: number, y: number, radius: number, startAngle: AngleInRadians, endAngle: AngleInRadians,
+        isCCW?: boolean): PathBuilder;
+
+    /**
+     * Appends arc to Path. Arc added is part of ellipse
+     * bounded by oval, from startAngle through sweepAngle. Both startAngle and
+     * sweepAngle are measured in degrees, where zero degrees is aligned with the
+     * positive x-axis, and positive sweeps extends arc clockwise.
+     * Returns the modified path for easier chaining.
+     * @param oval
+     * @param startAngle
+     * @param endAngle
+     * @param forceMoveTo
+     */
+    arcToOval(oval: InputRect, startAngle: AngleInDegrees, endAngle: AngleInDegrees,
+              forceMoveTo: boolean): PathBuilder;
+
+    /**
+     * Appends arc to Path. Arc is implemented by one or more conics weighted to
+     * describe part of oval with radii (rx, ry) rotated by xAxisRotate degrees. Arc
+     * curves from last Path Point to (x, y), choosing one of four possible routes:
+     * clockwise or counterclockwise, and smaller or larger. See SkPath.h for more details.
+     * Returns the modified path for easier chaining.
+     * @param rx
+     * @param ry
+     * @param xAxisRotate
+     * @param useSmallArc
+     * @param isCCW
+     * @param x
+     * @param y
+     */
+    arcToRotated(rx: number, ry: number, xAxisRotate: AngleInDegrees, useSmallArc: boolean,
+                 isCCW: boolean, x: number, y: number): PathBuilder;
+
+    /**
+     * Appends arc to Path, after appending line if needed. Arc is implemented by conic
+     * weighted to describe part of circle. Arc is contained by tangent from
+     * last Path point to (x1, y1), and tangent from (x1, y1) to (x2, y2). Arc
+     * is part of circle sized to radius, positioned so it touches both tangent lines.
+     * Returns the modified path for easier chaining.
+     * @param x1
+     * @param y1
+     * @param x2
+     * @param y2
+     * @param radius
+     */
+    arcToTangent(x1: number, y1: number, x2: number, y2: number, radius: number): PathBuilder;
+
+    /**
+     * Appends CLOSE_VERB to Path. A closed contour connects the first and last point
+     * with a line, forming a continuous loop.
+     * Returns the modified path for easier chaining.
+     */
+    close(): Path;
+
+    /**
+     * Adds conic from last point towards (x1, y1), to (x2, y2), weighted by w.
+     * If Path is empty, or path is closed, the last point is set to (0, 0)
+     * before adding conic.
+     * Returns the modified path for easier chaining.
+     * @param x1
+     * @param y1
+     * @param x2
+     * @param y2
+     * @param w
+     */
+    conicTo(x1: number, y1: number, x2: number, y2: number, w: number): PathBuilder;
+
+   /**
+     * Returns true if the point (x, y) is contained by current Path, taking into
+     * account FillType.
+     * @param x
+     * @param y
+     */
+    contains(x: number, y: number): boolean;
+
+    /**
+     * Returns the number of points in this path. Initially zero.
+     */
+    countPoints(): number;
+
+    /**
+     *  Adds cubic from last point towards (x1, y1), then towards (x2, y2), ending at
+     * (x3, y3). If Path is empty, or path is closed, the last point is set to
+     * (0, 0) before adding cubic.
+     * @param cpx1
+     * @param cpy1
+     * @param cpx2
+     * @param cpy2
+     * @param x
+     * @param y
+     */
+    cubicTo(cpx1: number, cpy1: number, cpx2: number, cpy2: number,
+            x: number, y: number): PathBuilder;
+
+    /**
+     * Returns an immutable Path with all the drawing so far and resets the
+     * internal buffers to be empty.
+     */
+    detach(): Path;
+
+    /**
+     * Returns an immutable Path with all the drawing so far and calls
+     * delete() on this JS object, freeing the memory associated with it.
+     */
+    detachAndDelete(): Path;
+
+    /**
+     * Returns true if there are no verbs in the path.
+     */
+    isEmpty(): boolean;
+
+    /**
+     * Returns minimum and maximum axes values of Point array.
+     * Returns (0, 0, 0, 0) if Path contains no points. Returned bounds width and height may
+     * be larger or smaller than area affected when Path is drawn.
+     * @param outputArray - if provided, the bounding box will be copied into this array instead of
+     *                      allocating a new one.
+     */
+    getBounds(outputArray?: Rect): Rect;
+
+    /**
+     * Adds line from last point to (x, y). If Path is empty, or last path is closed,
+     * last point is set to (0, 0) before adding line.
+     * Returns the modified path for easier chaining.
+     * @param x
+     * @param y
+     */
+    lineTo(x: number, y: number): PathBuilder;
+
+    /**
+     * Adds beginning of contour at the given point.
+     * Returns the modified path for easier chaining.
+     * @param x
+     * @param y
+     */
+    moveTo(x: number, y: number): PathBuilder;
+
+    /**
+     * Translates all the points in the path by dx, dy.
+     * Returns the modified path for easier chaining.
+     * @param dx
+     * @param dy
+     */
+    offset(dx: number, dy: number): PathBuilder;
+
+    /**
+     * Adds quad from last point towards (x1, y1), to (x2, y2).
+     * If Path is empty, or path is closed, last point is set to (0, 0) before adding quad.
+     * Returns the modified path for easier chaining.
+     * @param x1
+     * @param y1
+     * @param x2
+     * @param y2
+     */
+    quadTo(x1: number, y1: number, x2: number, y2: number): PathBuilder;
+
+    /**
+     * Relative version of arcToRotated.
+     * @param rx
+     * @param ry
+     * @param xAxisRotate
+     * @param useSmallArc
+     * @param isCCW
+     * @param dx
+     * @param dy
+     */
+    rArcTo(rx: number, ry: number, xAxisRotate: AngleInDegrees, useSmallArc: boolean,
+           isCCW: boolean, dx: number, dy: number): PathBuilder;
+
+    /**
+     * Relative version of conicTo.
+     * @param dx1
+     * @param dy1
+     * @param dx2
+     * @param dy2
+     * @param w
+     */
+    rConicTo(dx1: number, dy1: number, dx2: number, dy2: number, w: number): PathBuilder;
+
+    /**
+     * Relative version of cubicTo.
+     * @param cpx1
+     * @param cpy1
+     * @param cpx2
+     * @param cpy2
+     * @param x
+     * @param y
+     */
+    rCubicTo(cpx1: number, cpy1: number, cpx2: number, cpy2: number,
+             x: number, y: number): PathBuilder;
+
+    /**
+     * Relative version of lineTo.
+     * @param x
+     * @param y
+     */
+    rLineTo(x: number, y: number): PathBuilder;
+
+    /**
+     * Relative version of moveTo.
+     * @param x
+     * @param y
+     */
+    rMoveTo(x: number, y: number): PathBuilder;
+
+    /**
+     * Relative version of quadTo.
+     * @param x1
+     * @param y1
+     * @param x2
+     * @param y2
+     */
+    rQuadTo(x1: number, y1: number, x2: number, y2: number): PathBuilder;
+
+    /**
+     * Sets FillType, the rule used to fill Path.
+     * @param fill
+     */
+    setFillType(fill: FillType): void;
+
+    /**
+     * Returns an immutable Path with all the drawing so far. Keeps the
+     * current points, verbs, and weights for continued growth.
+     */
+    snapshot(): Path;
 
     /**
      * Takes a 3x3 matrix as either an array or as 9 individual params.
      * @param args
      */
-    transform(...args: any[]): Path;
-
-    /**
-     * Take start and stop "t" values (values between 0...1), and modify this path such that
-     * it is a subset of the original path.
-     * The trim values apply to the entire path, so if it contains several contours, all of them
-     * are including in the calculation.
-     * Null is returned if either input value is NaN.
-     * @param startT - a value in the range [0.0, 1.0]. 0.0 is the beginning of the path.
-     * @param stopT  - a value in the range [0.0, 1.0]. 1.0 is the end of the path.
-     * @param isComplement
-     */
-    trim(startT: number, stopT: number, isComplement: boolean): Path | null;
+    transform(...args: any[]): PathBuilder;
 }
 
 /**
  * See SkPathEffect.h for more on this class. The objects are opaque.
  */
-export type PathEffect = EmbindObject<PathEffect>;
+export type PathEffect = EmbindObject<"PathEffect">;
 
 /**
  * See SkPicture.h for more information on this class.
@@ -2498,7 +2894,35 @@ export type PathEffect = EmbindObject<PathEffect>;
  * Of note, SkPicture is *not* what is colloquially thought of as a "picture" (what we
  * call a bitmap). An SkPicture is a series of draw commands.
  */
-export interface SkPicture extends EmbindObject<SkPicture> {
+export interface SkPicture extends EmbindObject<"SkPicture"> {
+    /**
+     *  Returns a new shader that will draw with this picture.
+     *
+     *  @param tmx  The tiling mode to use when sampling in the x-direction.
+     *  @param tmy  The tiling mode to use when sampling in the y-direction.
+     *  @param mode How to filter the tiles
+     *  @param localMatrix Optional matrix used when sampling
+     *  @param tileRect The tile rectangle in picture coordinates: this represents the subset
+     *              (or superset) of the picture used when building a tile. It is not
+     *              affected by localMatrix and does not imply scaling (only translation
+     *              and cropping). If null, the tile rect is considered equal to the picture
+     *              bounds.
+     */
+    makeShader(tmx: TileMode, tmy: TileMode, mode: FilterMode,
+               localMatrix?: InputMatrix, tileRect?: InputRect): Shader;
+
+    /**
+     * Return the bounding area for the Picture.
+     * @param outputArray - if provided, the bounding box will be copied into this array instead of
+     *                      allocating a new one.
+     */
+    cullRect(outputArray?: Rect): Rect;
+
+    /**
+     * Returns the approximate byte size. Does not include large objects.
+     */
+    approximateBytesUsed(): number;
+
     /**
      * Returns the serialized format of this SkPicture. The format may change at anytime and
      * no promises are made for backwards or forward compatibility.
@@ -2506,13 +2930,16 @@ export interface SkPicture extends EmbindObject<SkPicture> {
     serialize(): Uint8Array | null;
 }
 
-export interface PictureRecorder extends EmbindObject<PictureRecorder> {
+export interface PictureRecorder extends EmbindObject<"PictureRecorder"> {
     /**
      * Returns a canvas on which to draw. When done drawing, call finishRecordingAsPicture()
      *
      * @param bounds - a rect to cull the results.
+     * @param computeBounds - Optional boolean (default false) which tells the
+     *                        recorder to compute a more accurate bounds for the
+     *                        cullRect of the picture.
      */
-    beginRecording(bounds: InputRect): Canvas;
+    beginRecording(bounds: InputRect, computeBounds?: boolean): Canvas;
 
     /**
      * Returns the captured draw commands as a picture and invalidates the canvas returned earlier.
@@ -2523,24 +2950,28 @@ export interface PictureRecorder extends EmbindObject<PictureRecorder> {
 /**
  * See SkRuntimeEffect.h for more details.
  */
-export interface RuntimeEffect extends EmbindObject<RuntimeEffect> {
+export interface RuntimeEffect extends EmbindObject<"RuntimeEffect"> {
     /**
      * Returns a shader executed using the given uniform data.
      * @param uniforms
-     * @param isOpaque
+     */
+    makeBlender(uniforms: Float32Array | number[] | MallocObj): Blender;
+
+    /**
+     * Returns a shader executed using the given uniform data.
+     * @param uniforms
      * @param localMatrix
      */
-    makeShader(uniforms: Float32Array | number[], isOpaque?: boolean,
+    makeShader(uniforms: Float32Array | number[] | MallocObj,
                localMatrix?: InputMatrix): Shader;
 
     /**
      * Returns a shader executed using the given uniform data and the children as inputs.
      * @param uniforms
-     * @param isOpaque
      * @param children
      * @param localMatrix
      */
-    makeShaderWithChildren(uniforms: Float32Array | number[], isOpaque?: boolean,
+    makeShaderWithChildren(uniforms: Float32Array | number[] | MallocObj,
                            children?: Shader[], localMatrix?: InputMatrix): Shader;
 
     /**
@@ -2571,9 +3002,9 @@ export interface RuntimeEffect extends EmbindObject<RuntimeEffect> {
 /**
  * See SkShader.h for more on this class. The objects are opaque.
  */
-export type Shader = EmbindObject<Shader>;
+export type Shader = EmbindObject<"Shader">;
 
-export interface Surface extends EmbindObject<Surface> {
+export interface Surface extends EmbindObject<"Surface"> {
     /**
      * A convenient way to draw exactly once on the canvas associated with this surface.
      * This requires an environment where a global function called requestAnimationFrame is
@@ -2634,8 +3065,12 @@ export interface Surface extends EmbindObject<Surface> {
      * @param src
      * @param info - If provided, will be used to determine the width/height/format of the
      *               source image. If not, sensible defaults will be used.
+     * @param srcIsPremul - set to true if the src data has premultiplied alpha. Otherwise, it will
+     *               be assumed to be Unpremultiplied. Note: if this is true and info specifies
+     *               Unpremul, Skia will not convert the src pixels first.
      */
-    makeImageFromTextureSource(src: TextureSource, info?: ImageInfo | PartialImageInfo): Image | null;
+    makeImageFromTextureSource(src: TextureSource, info?: ImageInfo | PartialImageInfo,
+                               srcIsPremul?: boolean): Image | null;
 
     /**
      * Returns current contents of the surface as an Image. This image will be optimized to be
@@ -2666,13 +3101,31 @@ export interface Surface extends EmbindObject<Surface> {
      * draw multiple frames, e.g. of an animation.
      *
      * Node users should call getCanvas() and work with that canvas directly.
+     *
+     * Returns the animation id.
      */
-    requestAnimationFrame(drawFrame: (_: Canvas) => void): void;
+    requestAnimationFrame(drawFrame: (_: Canvas) => void): number;
 
     /**
      * If this surface is GPU-backed, return the sample count of the surface.
      */
     sampleCnt(): number;
+
+    /**
+     * Updates the underlying GPU texture of the image to be the contents of the provided
+     * TextureSource. Has no effect on CPU backend or if img was not created with either
+     * makeImageFromTextureSource or makeImageFromTexture.
+     * If the provided TextureSource is of different dimensions than the Image, the contents
+     * will be deformed (e.g. squished). The ColorType, AlphaType, and ColorSpace of src should
+     * match the original settings used to create the Image or it may draw strange.
+     *
+     * @param img - A texture-backed Image.
+     * @param src - A valid texture source of any dimensions.
+     * @param srcIsPremul - set to true if the src data has premultiplied alpha. Otherwise, it will
+     *               be assumed to be Unpremultiplied. Note: if this is true and the image was
+     *               created with Unpremul, Skia will not convert.
+     */
+    updateTextureFromSource(img: Image, src: TextureSource, srcIsPremul?: boolean): void;
 
     /**
      * Returns the width of this surface in pixels.
@@ -2683,12 +3136,12 @@ export interface Surface extends EmbindObject<Surface> {
 /**
  * See SkTextBlob.h for more on this class. The objects are opaque.
  */
-export type TextBlob = EmbindObject<TextBlob>;
+export type TextBlob = EmbindObject<"TextBlob">;
 
 /**
  * See SkTypeface.h for more on this class. The objects are opaque.
  */
-export interface Typeface extends EmbindObject<Typeface> {
+export interface Typeface extends EmbindObject<"Typeface"> {
     /**
      * Retrieves the glyph ids for each code point in the provided string. Note that glyph IDs
      * are typeface-dependent; different faces may have different ids for the same code point.
@@ -2698,12 +3151,17 @@ export interface Typeface extends EmbindObject<Typeface> {
      */
     getGlyphIDs(str: string, numCodePoints?: number,
                 output?: GlyphIDArray): GlyphIDArray;
+
+    /**
+     * Return the typeface family name.
+     */
+    getFamilyName(): string;
 }
 
 /**
  * See SkVertices.h for more on this class.
  */
-export interface Vertices extends EmbindObject<Vertices> {
+export interface Vertices extends EmbindObject<"Vertices"> {
     /**
      * Return the bounding area for the vertices.
      * @param outputArray - if provided, the bounding box will be copied into this array instead of
@@ -2717,7 +3175,7 @@ export interface Vertices extends EmbindObject<Vertices> {
     uniqueID(): number;
 }
 
-export interface SkottieAnimation extends EmbindObject<SkottieAnimation> {
+export interface SkottieAnimation extends EmbindObject<"SkottieAnimation"> {
     /**
      * Returns the animation duration in seconds.
      */
@@ -2795,6 +3253,11 @@ export interface TextFontFeatures {
     value: number;
 }
 
+export interface TextFontVariations {
+    axis: string;
+    value: number;
+}
+
 export interface TextShadow {
     color?: InputColor;
     /**
@@ -2815,6 +3278,7 @@ export interface TextStyle {
     fontFeatures?: TextFontFeatures[];
     fontSize?: number;
     fontStyle?: FontStyle;
+    fontVariations?: TextFontVariations[];
     foregroundColor?: InputColor;
     heightMultiplier?: number;
     halfLeading?: boolean;
@@ -2835,7 +3299,7 @@ export interface TonalColorsOutput {
     spot: Color;
 }
 
-export interface TypefaceFontProvider extends EmbindObject<TypefaceFontProvider> {
+export interface TypefaceFontProvider extends FontMgr {
     /**
      * Registers a given typeface with the given family name (ignoring whatever name the
      * typface has for itself).
@@ -2843,6 +3307,22 @@ export interface TypefaceFontProvider extends EmbindObject<TypefaceFontProvider>
      * @param family
      */
     registerFont(bytes: ArrayBuffer | Uint8Array, family: string): void;
+}
+
+/**
+ * See FontCollection.h in SkParagraph for more details
+ */
+export interface FontCollection extends EmbindObject<"FontCollection"> {
+    /**
+     * Enable fallback to dynamically discovered fonts for characters that are not handled
+     * by the text style's fonts.
+     */
+    enableFontFallback(): void;
+
+    /**
+     * Set the default provider used to locate fonts.
+     */
+    setDefaultFontManager(fontManager: TypefaceFontProvider | null): void;
 }
 
 export interface URange {
@@ -2868,6 +3348,15 @@ export interface WebGLOptions {
     preserveDrawingBuffer?: number;
     renderViaOffscreenBackBuffer?: number;
     stencil?: number;
+}
+
+/**
+ * Options for configuring a canvas WebGPU context. If an option is omitted, a default specified by
+ * the WebGPU standard will be used.
+ */
+export interface WebGPUCanvasOptions {
+    format?: GPUTextureFormat;
+    alphaMode?: GPUCanvasAlphaMode;
 }
 
 export interface DefaultConstructor<T> {
@@ -3085,6 +3574,17 @@ export interface Matrix4x4Helpers {
     transpose(matrix: Matrix4x4 | number[]): number[];
 }
 
+    /**
+     * For more information, see SkBlender.h.
+     */
+export interface BlenderFactory {
+    /**
+     * Create a blender that implements the specified BlendMode.
+     * @param mode
+     */
+    Mode(mode: BlendMode): Blender;
+}
+
 export interface ParagraphBuilderFactory {
     /**
      * Creates a ParagraphBuilder using the fonts available from the given font manager.
@@ -3101,9 +3601,22 @@ export interface ParagraphBuilderFactory {
     MakeFromFontProvider(style: ParagraphStyle, fontSrc: TypefaceFontProvider): ParagraphBuilder;
 
     /**
+     * Creates a ParagraphBuilder using the given font collection.
+     * @param style
+     * @param fontCollection
+     */
+    MakeFromFontCollection(style: ParagraphStyle, fontCollection: FontCollection): ParagraphBuilder;
+
+    /**
      * Return a shaped array of lines
      */
     ShapeText(text: string, runs: FontBlock[], width?: number): ShapedLine[];
+
+    /**
+     * Whether the paragraph builder requires ICU data to be provided by the
+     * client.
+     */
+    RequiresClientICU(): boolean;
 }
 
 export interface ParagraphStyleConstructor {
@@ -3120,11 +3633,12 @@ export interface ParagraphStyleConstructor {
  */
 export interface ColorFilterFactory {
     /**
-     * Makes a color filter with the given color and blend mode.
+     * Makes a color filter with the given color, blend mode, and colorSpace.
      * @param color
      * @param mode
+     * @param colorSpace - If omitted, will use SRGB
      */
-    MakeBlend(color: InputColor, mode: BlendMode): ColorFilter;
+    MakeBlend(color: InputColor, mode: BlendMode, colorSpace?: ColorSpace): ColorFilter;
 
     /**
      * Makes a color filter composing two color filters.
@@ -3156,6 +3670,12 @@ export interface ColorFilterFactory {
      * Makes a color filter that converts between sRGB colors and linear colors.
      */
     MakeSRGBToLinearGamma(): ColorFilter;
+
+    /**
+     * Makes a color filter that multiplies the luma of its input into the alpha channel,
+     * and sets the red, green, and blue channels to zero.
+     */
+    MakeLuma(): ColorFilter;
 }
 
 export interface ContourMeasureIterConstructor {
@@ -3201,9 +3721,22 @@ export interface FontMgrFactory {
 }
 
 /**
- * See effects/ImageFilters.h for more.
+ * See //include/effects/SkImageFilters.h for more.
  */
 export interface ImageFilterFactory {
+    /**
+     * Create a filter that takes a BlendMode and uses it to composite the two filters together.
+     *
+     *  At least one of background and foreground should be non-null in nearly all circumstances.
+     *
+     *  @param blend       The blend mode that defines the compositing operation
+     *  @param background The Dst pixels used in blending; if null, use the dynamic source image
+     *                    (e.g. a saved layer).
+     *  @param foreground The Src pixels used in blending; if null, use the dynamic source image.
+     */
+    MakeBlend(blend: BlendMode, background: ImageFilter | null,
+              foreground: ImageFilter | null): ImageFilter;
+
     /**
      * Create a filter that blurs its input by the separate X and Y sigmas. The provided tile mode
      * is used when the blur kernel goes outside the input image.
@@ -3233,6 +3766,87 @@ export interface ImageFilterFactory {
     MakeCompose(outer: ImageFilter | null, inner: ImageFilter | null): ImageFilter;
 
     /**
+     *  Create a filter that dilates each input pixel's channel values to the max value within the
+     *  given radii along the x and y axes.
+     *  @param radiusX  The distance to dilate along the x axis to either side of each pixel.
+     *  @param radiusY  The distance to dilate along the y axis to either side of each pixel.
+     *  @param input     if null, it will use the dynamic source image (e.g. a saved layer).
+     */
+    MakeDilate(radiusX: number, radiusY: number, input: ImageFilter | null): ImageFilter;
+
+    /**
+     *  Create a filter that moves each pixel in its color input based on an (x,y) vector encoded
+     *  in its displacement input filter. Two color components of the displacement image are
+     *  mapped into a vector as scale * (color[xChannel], color[yChannel]), where the channel
+     *  selectors are one of R, G, B, or A.
+     *  The mapping takes the 0-255 RGBA values of the image and scales them to be [-0.5 to 0.5],
+     *  in a similar fashion to https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feDisplacementMap
+     *
+     *  At least one of displacement and color should be non-null in nearly all circumstances.
+     *
+     *  @param xChannel RGBA channel that encodes the x displacement per pixel.
+     *  @param yChannel RGBA channel that encodes the y displacement per pixel.
+     *  @param scale    Scale applied to displacement extracted from image.
+     *  @param displacement The filter defining the displacement image, or null to use source.
+     *  @param color   The filter providing the color pixels to be displaced, or null to use source.
+     */
+    MakeDisplacementMap(xChannel: ColorChannel, yChannel: ColorChannel, scale: number,
+                        displacement: ImageFilter | null, color: ImageFilter | null): ImageFilter;
+    /**
+     *  Create a filter that draws a drop shadow under the input content. This filter produces an
+     *  image that includes the inputs' content.
+     *  @param dx       The X offset of the shadow.
+     *  @param dy       The Y offset of the shadow.
+     *  @param sigmaX   The blur radius for the shadow, along the X axis.
+     *  @param sigmaY   The blur radius for the shadow, along the Y axis.
+     *  @param color    The color of the drop shadow.
+     *  @param input    The input filter; if null, it will use the dynamic source image.
+     */
+    MakeDropShadow(dx: number, dy: number, sigmaX: number, sigmaY: number, color: Color,
+                   input: ImageFilter | null): ImageFilter;
+
+    /**
+     *  Just like MakeDropShadow, except the input content is not in the resulting image.
+     *  @param dx       The X offset of the shadow.
+     *  @param dy       The Y offset of the shadow.
+     *  @param sigmaX   The blur radius for the shadow, along the X axis.
+     *  @param sigmaY   The blur radius for the shadow, along the Y axis.
+     *  @param color    The color of the drop shadow.
+     *  @param input    The input filter; if null, it will use the dynamic source image.
+     */
+    MakeDropShadowOnly(dx: number, dy: number, sigmaX: number, sigmaY: number, color: Color,
+                       input: ImageFilter | null): ImageFilter;
+
+    /**
+     *  Create a filter that erodes each input pixel's channel values to the minimum channel value
+     *  within the given radii along the x and y axes.
+     *  @param radiusX  The distance to erode along the x axis to either side of each pixel.
+     *  @param radiusY  The distance to erode along the y axis to either side of each pixel.
+     *  @param input     if null, it will use the dynamic source image (e.g. a saved layer).
+     */
+    MakeErode(radiusX: number, radiusY: number, input: ImageFilter | null): ImageFilter;
+
+    /**
+     *  Create a filter using the given image as a source. Returns null if 'image' is null.
+     *
+     *  @param img      The image that is output by the filter, subset by 'srcRect'.
+     *  @param sampling The sampling to use when drawing the image.
+     */
+    MakeImage(img: Image, sampling: FilterOptions | CubicResampler): ImageFilter | null;
+
+    /**
+     *  Create a filter that draws the 'srcRect' portion of image into 'dstRect' using the given
+     *  filter quality. Similar to Canvas.drawImageRect. Returns null if 'image' is null.
+     *
+     *  @param img      The image that is output by the filter, subset by 'srcRect'.
+     *  @param sampling The sampling to use when drawing the image.
+     *  @param srcRect  The source pixels sampled into 'dstRect'.
+     *  @param dstRect  The local rectangle to draw the image into.
+     */
+    MakeImage(img: Image, sampling: FilterOptions | CubicResampler,
+              srcRect: InputRect, dstRect: InputRect): ImageFilter | null;
+
+    /**
      * Create a filter that transforms the input image by 'matrix'. This matrix transforms the
      * local space, which means it effectively happens prior to any transformation coming from the
      * Canvas initiating the filtering.
@@ -3242,6 +3856,21 @@ export interface ImageFilterFactory {
      */
     MakeMatrixTransform(matr: InputMatrix, sampling: FilterOptions | CubicResampler,
                         input: ImageFilter | null): ImageFilter;
+
+    /**
+     *  Create a filter that offsets the input filter by the given vector.
+     *  @param dx       The x offset in local space that the image is shifted.
+     *  @param dy       The y offset in local space that the image is shifted.
+     *  @param input    The input that will be moved, if null, will use the dynamic source image.
+     */
+    MakeOffset(dx: number, dy: number, input: ImageFilter | null): ImageFilter;
+
+    /**
+     * Transforms a shader into an image filter
+     *
+     * @param shader - The Shader to be transformed
+     */
+   MakeShader(shader: Shader): ImageFilter;
 }
 
 /**
@@ -3258,9 +3887,17 @@ export interface MaskFilterFactory {
 }
 
 /**
- * Contains the ways to create an Path.
+ * Contains the ways to create a Path.
  */
 export interface PathConstructorAndFactory extends DefaultConstructor<Path> {
+    /**
+     * Returns true if the two paths contain equal verbs and equal weights.
+     * @param path1 first path to compate
+     * @param path2 second path to compare
+     * @return      true if Path can be interpolated equivalent
+     */
+    CanInterpolate(path1: Path, path2: Path): boolean;
+
     /**
      * Creates a new path from the given list of path commands. If this fails, null will be
      * returned instead.
@@ -3278,6 +3915,28 @@ export interface PathConstructorAndFactory extends DefaultConstructor<Path> {
     MakeFromOp(one: Path, two: Path, op: PathOp): Path | null;
 
     /**
+     * Interpolates between Path with point array of equal size.
+     * Copy verb array and weights to result, and set result path to a weighted
+     * average of this path array and ending path.
+     *
+     *  weight is most useful when between zero (ending path) and
+     *  one (this path); will work with values outside of this
+     *  range.
+     *
+     * interpolate() returns undefined if path is not
+     * the same size as ending path. Call isInterpolatable() to check Path
+     * compatibility prior to calling interpolate().
+     *
+     * @param start path to interpolate from
+     * @param end  path to interpolate with
+     * @param weight  contribution of this path, and
+     *                 one minus contribution of ending path
+     * @return        Path replaced by interpolated averages or null if
+     *                not interpolatable
+     */
+    MakeFromPathInterpolation(start: Path, end: Path, weight: number): Path | null;
+
+    /**
      * Creates a new path from the provided SVG string. If this fails, null will be
      * returned instead.
      * @param str
@@ -3289,13 +3948,23 @@ export interface PathConstructorAndFactory extends DefaultConstructor<Path> {
      * reads the first verb from verbs and then the appropriate number of points from the
      * FlattenedPointArray (e.g. 2 points for moveTo, 4 points for quadTo, etc). If the verb is
      * a conic, a weight will be read from the WeightList.
-     * If the data is malformed (e.g. not enough points), the resulting path will be incomplete.
+     * If the data is malformed (e.g. not enough points), the resulting path will be empty.
+     * If memory is passed in with Malloced TypedArrays, modifying the data after
+     * creating the path will result in undefined behavior.
      * @param verbs - the verbs that create this path, in the order of being drawn.
      * @param points - represents n points with 2n floats.
      * @param weights - used if any of the verbs are conics, can be omitted otherwise.
      */
     MakeFromVerbsPointsWeights(verbs: VerbList, points: InputFlattenedPointArray,
                                weights?: WeightList): Path;
+}
+
+export interface PathBuilderConstructor extends DefaultConstructor<PathBuilder> {
+    /**
+     * Create a PathBuilder with a copy of the points, verbs, and weights
+     * (if applicable)
+     */
+    new(toCopy: Path): PathBuilder;
 }
 
 /**
@@ -3327,11 +3996,50 @@ export interface PathEffectFactory {
      * @param seedAssist - modifies the randomness. See SkDiscretePathEffect.h for more.
      */
     MakeDiscrete(segLength: number, dev: number, seedAssist: number): PathEffect;
+
+    /**
+     * Returns a PathEffect that will fill the drawing path with a pattern made by applying
+     * the given matrix to a repeating set of infinitely long lines of the given width.
+     * For example, the scale of the provided matrix will determine how far apart the lines
+     * should be drawn its rotation affects the lines' orientation.
+     * @param width - must be >= 0
+     * @param matrix
+     */
+    MakeLine2D(width: number, matrix: InputMatrix): PathEffect | null;
+
+    /**
+     * Returns a PathEffect which implements dashing by replicating the specified path.
+     *   @param path The path to replicate (dash)
+     *   @param advance The space between instances of path
+     *   @param phase distance (mod advance) along path for its initial position
+     *   @param style how to transform path at each point (based on the current
+     *                position and tangent)
+     */
+    MakePath1D(path: Path, advance: number, phase: number, style: Path1DEffectStyle):
+        PathEffect | null;
+
+    /**
+     * Returns a PathEffect that will fill the drawing path with a pattern by repeating the
+     * given path according to the provided matrix. For example, the scale of the matrix
+     * determines how far apart the path instances should be drawn.
+     * @param matrix
+     * @param path
+     */
+    MakePath2D(matrix: InputMatrix, path: Path): PathEffect | null;
 }
 
 /**
  * See RuntimeEffect.h for more details.
  */
+export interface DebugTrace extends EmbindObject<"DebugTrace"> {
+    writeTrace(): string;
+}
+
+export interface TracedShader {
+    shader: Shader;
+    debugTrace: DebugTrace;
+}
+
 export interface RuntimeEffectFactory {
     /**
      * Compiles a RuntimeEffect from the given shader code.
@@ -3340,6 +4048,22 @@ export interface RuntimeEffectFactory {
      *                   be printed to console.log().
      */
     Make(sksl: string, callback?: (err: string) => void): RuntimeEffect | null;
+
+    /**
+     * Compiles a RuntimeEffect from the given blender code.
+     * @param sksl - Source code for a blender written in SkSL
+     * @param callback - will be called with any compilation error. If not provided, errors will
+     *                   be printed to console.log().
+     */
+    MakeForBlender(sksl: string, callback?: (err: string) => void): RuntimeEffect | null;
+
+    /**
+     * Adds debug tracing to an existing RuntimeEffect.
+     * @param shader - An already-assembled shader, created with RuntimeEffect.makeShader.
+     * @param traceCoordX - the X coordinate of the device-space pixel to trace
+     * @param traceCoordY - the Y coordinate of the device-space pixel to trace
+     */
+    MakeTraced(shader: Shader, traceCoordX: number, traceCoordY: number): TracedShader;
 }
 
 /**
@@ -3536,12 +4260,29 @@ export interface TextStyleConstructor {
     new(ts: TextStyle): TextStyle;
 }
 
+export interface SlottableTextPropertyConstructor {
+   /**
+    * Fills out all optional fields with defaults. The emscripten bindings complain if there
+    * is a field undefined and it was expecting a float (for example).
+    * @param text
+    */
+   new(text: SlottableTextProperty): SlottableTextProperty;
+}
+
 export interface TypefaceFactory {
+    /**
+     * By default, CanvasKit has a default monospace typeface compiled in so that text works out
+     * of the box. This returns that typeface if it is available, null otherwise.
+     */
+    GetDefault(): Typeface | null;
+
     /**
      * Create a typeface using Freetype from the specified bytes and return it. CanvasKit supports
      * .ttf, .woff and .woff2 fonts. It returns null if the bytes cannot be decoded.
      * @param fontData
      */
+    MakeTypefaceFromData(fontData: ArrayBuffer): Typeface | null;
+    // Legacy
     MakeFreeTypeFaceFromData(fontData: ArrayBuffer): Typeface | null;
 }
 
@@ -3550,6 +4291,13 @@ export interface TypefaceFontProviderFactory {
      * Return an empty TypefaceFontProvider
      */
     Make(): TypefaceFontProvider;
+}
+
+export interface FontCollectionFactory {
+    /**
+     * Return an empty FontCollection
+     */
+    Make(): FontCollection;
 }
 
 /**
@@ -3646,14 +4394,20 @@ export type ColorMatrix = Float32Array;
  */
 export type IRect = Int32Array;
 /**
- * An Point is represented by 2 floats: (x, y).
+ * A Point is represented by 2 floats: (x, y).
  */
 export type Point = Float32Array;
 /**
- * An Rect is represented by 4 floats. In order, the floats correspond to left, top,
+ * A Rect is represented by 4 floats. In order, the floats correspond to left, top,
  * right, bottom. See Rect.h for more
  */
 export type Rect = Float32Array;
+
+export interface RectWithDirection {
+    rect: Rect;
+    dir: TextDirection;
+}
+
 /**
  * An RRect (rectangle with rounded corners) is represented by 12 floats. In order, the floats
  * correspond to left, top, right, bottom and then in pairs, the radiusX, radiusY for upper-left,
@@ -3706,6 +4460,12 @@ export type WeightList = MallocObj | Float32Array | number[];
 export type Matrix4x4 = Float32Array;
 export type Matrix3x3 = Float32Array;
 export type Matrix3x2 = Float32Array;
+
+/**
+ * Vector2 represents an x, y coordinate or vector. It has length 2.
+ */
+export type Vector2 = Point;
+
 /**
  * Vector3 represents an x, y, z coordinate or vector. It has length 3.
  */
@@ -3776,11 +4536,35 @@ export type InputRRect = MallocObj | RRect | number[];
  * be scos, ssin, tx, ty for each RSXForm. See RSXForm.h for more details.
  */
 export type InputFlattenedRSXFormArray = MallocObj | Float32Array | number[];
+
+/**
+ * InputVector2 maps to InputPoint, the alias is to not use the word "Point" when not accurate, but
+ * they are in practice the same, a representation of x and y.
+ */
+export type InputVector2 =  InputPoint;
 /**
  * CanvasKit APIs accept normal arrays, typed arrays, or Malloc'd memory as a vector of 3 floats.
  * For example, this is the x, y, z coordinates.
  */
 export type InputVector3 = MallocObj | Vector3 | Float32Array;
+
+/**
+ * CanvasKit APIs accept normal arrays, typed arrays, or Malloc'd memory
+ * for bidi regions. Regions are triples of integers
+ * [startIdx, stopIdx, bidiLevel]
+ * where startIdx is inclusive and stopIdx is exclusive.
+ * Length 3 * n where n is the number of regions.
+ */
+export type InputBidiRegions = MallocObj | Uint32Array | number[];
+
+/**
+ * CanvasKit APIs accept normal arrays, typed arrays, or Malloc'd memory for
+ * words, graphemes or line breaks.
+ */
+export type InputWords = MallocObj | Uint32Array | number[];
+export type InputGraphemes = MallocObj | Uint32Array | number[];
+export type InputLineBreaks = MallocObj | Uint32Array | number[];
+
 /**
  * These are the types that webGL's texImage2D supports as a way to get data from as a texture.
  * Not listed, but also supported are https://developer.mozilla.org/en-US/docs/Web/API/VideoFrame
@@ -3791,7 +4575,8 @@ export type AlphaType = EmbindEnumEntity;
 export type BlendMode = EmbindEnumEntity;
 export type BlurStyle = EmbindEnumEntity;
 export type ClipOp = EmbindEnumEntity;
-export type ColorSpace = EmbindObject<ColorSpace>;
+export type ColorChannel = EmbindEnumEntity;
+export type ColorSpace = EmbindObject<"ColorSpace">;
 export type ColorType = EmbindEnumEntity;
 export type EncodedImageFormat = EmbindEnumEntity;
 export type FillType = EmbindEnumEntity;
@@ -3800,12 +4585,15 @@ export type FontEdging = EmbindEnumEntity;
 export type FontHinting = EmbindEnumEntity;
 export type MipmapMode = EmbindEnumEntity;
 export type PaintStyle = EmbindEnumEntity;
+export type Path1DEffectStyle = EmbindEnumEntity;
 export type PathOp = EmbindEnumEntity;
 export type PointMode = EmbindEnumEntity;
 export type StrokeCap = EmbindEnumEntity;
 export type StrokeJoin = EmbindEnumEntity;
 export type TileMode = EmbindEnumEntity;
 export type VertexMode = EmbindEnumEntity;
+export type InputState = EmbindEnumEntity;
+export type ModifierKey = EmbindEnumEntity;
 
 export type Affinity = EmbindEnumEntity;
 export type DecorationStyle = EmbindEnumEntity;
@@ -3818,7 +4606,9 @@ export type RectWidthStyle = EmbindEnumEntity;
 export type TextAlign = EmbindEnumEntity;
 export type TextBaseline = EmbindEnumEntity;
 export type TextDirection = EmbindEnumEntity;
+export type LineBreakType = EmbindEnumEntity;
 export type TextHeightBehavior = EmbindEnumEntity;
+export type CodeUnitFlags = EmbindEnumEntity;
 
 export interface AffinityEnumValues extends EmbindEnum {
     Upstream: Affinity;
@@ -3890,6 +4680,13 @@ export interface ColorSpaceEnumValues { // not a typical enum, but effectively l
      * @param b
      */
     Equals(a: ColorSpace, b: ColorSpace): boolean;
+}
+
+export interface ColorChannelEnumValues extends EmbindEnum {
+    Red: ColorChannel;
+    Green: ColorChannel;
+    Blue: ColorChannel;
+    Alpha: ColorChannel;
 }
 
 export interface ColorTypeEnumValues extends EmbindEnum {
@@ -3993,6 +4790,15 @@ export interface PaintStyleEnumValues extends EmbindEnum {
     Stroke: PaintStyle;
 }
 
+export interface Path1DEffectStyleEnumValues extends EmbindEnum {
+    // Translate the shape to each position
+    Translate: Path1DEffectStyle;
+    // Rotate the shape about its center
+    Rotate: Path1DEffectStyle;
+    // Transform each point and turn lines into curves
+    Morph: Path1DEffectStyle;
+}
+
 export interface PathOpEnumValues extends EmbindEnum {
     Difference: PathOp;
     Intersect: PathOp;
@@ -4008,6 +4814,14 @@ export interface PlaceholderAlignmentEnumValues extends EmbindEnum {
     Top: PlaceholderAlignment;
     Bottom: PlaceholderAlignment;
     Middle: PlaceholderAlignment;
+}
+
+export interface CodeUnitFlagsEnumValues extends EmbindEnum {
+    NoCodeUnitFlag: CodeUnitFlags;
+    Whitespace: CodeUnitFlags;
+    Space: CodeUnitFlags;
+    Control: CodeUnitFlags;
+    Ideographic: CodeUnitFlags;
 }
 
 export interface PointModeEnumValues extends EmbindEnum {
@@ -4061,6 +4875,11 @@ export interface TextDirectionEnumValues extends EmbindEnum {
     RTL: TextDirection;
 }
 
+export interface LineBreakTypeEnumValues extends EmbindEnum {
+    SoftLineBreak: LineBreakType;
+    HardtLineBreak: LineBreakType;
+}
+
 export interface TextHeightBehaviorEnumValues extends EmbindEnum {
     All: TextHeightBehavior;
     DisableFirstAscent: TextHeightBehavior;
@@ -4079,4 +4898,47 @@ export interface VertexModeEnumValues extends EmbindEnum {
     Triangles: VertexMode;
     TrianglesStrip: VertexMode;
     TriangleFan: VertexMode;
+}
+
+export interface InputStateEnumValues extends EmbindEnum {
+    Down: InputState;
+    Up: InputState;
+    Move: InputState;
+    Right: InputState;  // fling only
+    Left: InputState;  // fling only
+}
+
+export interface ModifierKeyEnumValues extends EmbindEnum {
+    None: ModifierKey;
+    Shift: ModifierKey;
+    Control: ModifierKey;
+    Option: ModifierKey;
+    Command: ModifierKey;
+    FirstPress: ModifierKey;
+}
+
+export type VerticalAlign = EmbindEnumEntity;
+
+export interface VerticalTextAlignEnumValues extends EmbindEnum {
+    Top: VerticalAlign;
+    TopBaseline: VerticalAlign;
+
+    // Skottie vertical alignment extensions
+    // Visual alignement modes -- these are using tight visual bounds for the paragraph.
+    VisualTop: VerticalAlign;     // visual top    -> text box top
+    VisualCenter: VerticalAlign;  // visual center -> text box center
+    VisualBottom: VerticalAlign;  // visual bottom -> text box bottom
+}
+
+export type ResizePolicy = EmbindEnumEntity;
+
+export interface ResizePolicyEnumValues extends EmbindEnum {
+    // Use the specified text size.
+    None: ResizePolicy;
+    // Resize the text such that the extent box fits (snuggly) in the text box,
+    // both horizontally and vertically.
+    ScaleToFit: ResizePolicy;
+    // Same kScaleToFit if the text doesn't fit at the specified font size.
+    // Otherwise, same as kNone.
+    DownscaleToFit: ResizePolicy;
 }

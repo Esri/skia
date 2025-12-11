@@ -8,9 +8,12 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkTypes.h"
 #include "include/core/SkUnPreMultiply.h"
-#include "include/private/SkColorData.h"
-#include "include/utils/SkRandom.h"
-#include "src/core/SkMathPriv.h"
+#include "include/private/base/SkCPUTypes.h"
+#include "include/private/chromium/SkPMColor.h"
+#include "src/base/SkMathPriv.h"
+#include "src/base/SkRandom.h"
+#include "src/core/SkColorData.h"
+
 #include "tests/Test.h"
 
 DEF_TEST(ColorPremul, reporter) {
@@ -34,6 +37,21 @@ DEF_TEST(ColorPremul, reporter) {
     }
 }
 
+DEF_TEST(SkPMColor_SetAndRetrieveChannels, reporter) {
+    SkPMColor pmc = SkPMColorSetARGB(0xFE, 0xDC, 0xBA, 0x98);
+
+#if defined(SK_PMCOLOR_IS_RGBA)
+    REPORTER_ASSERT(reporter, pmc == 0xFE98BADC);
+#else
+    REPORTER_ASSERT(reporter, pmc == 0xFEDCBA98);
+#endif
+
+    REPORTER_ASSERT(reporter, SkPMColorGetA(pmc) == 0xFE);
+    REPORTER_ASSERT(reporter, SkPMColorGetR(pmc) == 0xDC);
+    REPORTER_ASSERT(reporter, SkPMColorGetG(pmc) == 0xBA);
+    REPORTER_ASSERT(reporter, SkPMColorGetB(pmc) == 0x98);
+}
+
 /**
   This test fails: SkFourByteInterp does *not* preserve opaque destinations.
   SkAlpha255To256 implemented as (alpha + 1) is faster than
@@ -50,7 +68,7 @@ DEF_TEST(ColorInterp, reporter) {
         SkPMColor src = SkPreMultiplyColor(colorSrc);
         SkPMColor dst = SkPreMultiplyColor(colorDst);
 
-        if (false) {
+        if ((false)) {
             REPORTER_ASSERT(reporter, SkFourByteInterp(src, dst, a0) == dst);
             REPORTER_ASSERT(reporter, SkFourByteInterp(src, dst, a255) == src);
         }

@@ -11,12 +11,19 @@
 #include <emscripten.h>
 #include <emscripten/bind.h>
 #include "include/core/SkColor.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkSpan.h"
-#include "include/private/SkMalloc.h"
+#include "include/private/base/SkMalloc.h"
+
+#include <memory>
+
+class SkData;
+class SkCodec;
 
 using namespace emscripten;
 
 // Self-documenting types
+using JSColor = int32_t;
 using JSArray = emscripten::val;
 using JSObject = emscripten::val;
 using JSString = emscripten::val;
@@ -24,6 +31,7 @@ using SkPathOrNull = emscripten::val;
 using TypedArray = emscripten::val;
 using Uint8Array = emscripten::val;
 using Uint16Array = emscripten::val;
+using Int32Array = emscripten::val;
 using Uint32Array = emscripten::val;
 using Float32Array = emscripten::val;
 
@@ -35,6 +43,7 @@ using Float32Array = emscripten::val;
 // This doesn't stop us from using these as different types; e.g. a float* can be treated as an
 // SkPoint* in some APIs.
 using WASMPointerF32 = uintptr_t;
+using WASMPointerI32 = uintptr_t;
 using WASMPointerU8  = uintptr_t;
 using WASMPointerU16 = uintptr_t;
 using WASMPointerU32 = uintptr_t;
@@ -68,6 +77,10 @@ template <typename T> TypedArray MakeTypedArray(int count, const T src[]) {
     return jarray;
 }
 
+SkColor4f ptrToSkColor4f(WASMPointerF32);
+
+std::unique_ptr<SkCodec> DecodeImageData(sk_sp<SkData>);
+
 /**
  *  Gives read access to a JSArray
  *
@@ -78,7 +91,7 @@ template <typename T> class JSSpan {
 public:
     // Note: Use of this constructor is 5-20x slower than manually copying the data on the JS side
     // and sending over a pointer, length, and boolean for the other constructor.
-    JSSpan(JSArray src) {
+    explicit JSSpan(JSArray src) {
         const size_t len = src["length"].as<size_t>();
         T* data;
 

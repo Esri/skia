@@ -15,7 +15,10 @@ skia_component("sksg") {
   public_configs = [ ":public_config" ]
   sources = skia_sksg_sources
   configs = [ "../../:skia_private" ]
-  deps = [ "../..:skia" ]
+  deps = [
+    "../..:pathops",
+    "../..:skia",
+  ]
 }
 
 if (defined(is_skia_standalone) && skia_enable_tools) {
@@ -31,18 +34,14 @@ if (defined(is_skia_standalone) && skia_enable_tools) {
     ]
   }
 
-  skia_source_set("samples") {
+  skia_source_set("slides") {
     if (target_cpu != "wasm") {  # TODO: clean up wasm test
       testonly = true
 
-      configs = [
-        "../..:skia_private",
-        "../..:samples_config",  # TODO: refactor to make this nicer
-      ]
-      sources = [ "samples/SampleSVGPong.cpp" ]
+      configs = [ "../..:skia_private" ]
+      sources = [ "slides/SVGPongSlide.cpp" ]
       deps = [
         ":sksg",
-        "../..:samples",
         "../..:skia",
       ]
     }

@@ -12,28 +12,34 @@
  * follow the instructions at the top to download and import the test suite.
  */
 
-#include "gm/gm.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
 #include "include/core/SkData.h"
-#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
 #include "include/core/SkPaint.h"
-#include "include/core/SkSize.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkShader.h"
 #include "include/core/SkString.h"
-#include "include/core/SkStringView.h"
 #include "include/core/SkSurface.h"
-#include "include/effects/SkGradientShader.h"
-#include "include/effects/SkImageFilters.h"
+#include "include/core/SkTypes.h"
 #include "include/effects/SkRuntimeEffect.h"
-#include "include/utils/SkRandom.h"
+#include "include/gpu/GpuTypes.h"
 #include "src/core/SkOSFile.h"
-#include "src/core/SkRuntimeEffectPriv.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrDirectContextPriv.h"
 #include "src/utils/SkOSPath.h"
+#include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
-#include "tools/ToolUtils.h"
+
+#if defined(SK_GANESH)
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
+#endif
+
+#include <functional>
+
+struct GrContextOptions;
 
 static void test_expect_fail(skiatest::Reporter* r, const char* testFile) {
     SkRuntimeEffect::Options options{};
@@ -68,7 +74,7 @@ static void test_expect_pass(skiatest::Reporter* r, SkSurface* surface, const ch
     }
 
     SkRuntimeShaderBuilder builder(result.effect);
-    sk_sp<SkShader> shader = builder.makeShader(/*localMatrix=*/nullptr, /*isOpaque=*/true);
+    sk_sp<SkShader> shader = builder.makeShader();
     if (!shader) {
         ERRORF(r, "%s: Unable to build shader", testFile);
         return;
@@ -106,21 +112,26 @@ static void iterate_dir(const char* directory, const std::function<void(const ch
 
 DEF_TEST(SkSL_ES2Conformance_Pass_CPU, r) {
     const SkImageInfo info = SkImageInfo::MakeN32Premul(1, 1);
-    sk_sp<SkSurface> surface(SkSurface::MakeRaster(info));
+    sk_sp<SkSurface> surface(SkSurfaces::Raster(info));
 
     iterate_dir("sksl/es2_conformance/pass/", [&](const char* path) {
         test_expect_pass(r, surface.get(), path);
     });
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkSL_ES2Conformance_Pass_GPU, r, ctxInfo) {
+#if defined(SK_GANESH)
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkSL_ES2Conformance_Pass_GPU,
+                                       r,
+                                       ctxInfo,
+                                       CtsEnforcement::kApiLevel_T) {
     const SkImageInfo info = SkImageInfo::MakeN32Premul(1, 1);
-    sk_sp<SkSurface> surface(SkSurface::MakeRenderTarget(ctxInfo.directContext(),
-                                                         SkBudgeted::kNo, info));
+    sk_sp<SkSurface> surface(
+            SkSurfaces::RenderTarget(ctxInfo.directContext(), skgpu::Budgeted::kNo, info));
     iterate_dir("sksl/es2_conformance/pass/", [&](const char* path) {
         test_expect_pass(r, surface.get(), path);
     });
 }
+#endif
 
 DEF_TEST(SkSL_ES2Conformance_Fail, r) {
     iterate_dir("sksl/es2_conformance/fail/", [&](const char* path) {

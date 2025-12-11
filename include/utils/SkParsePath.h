@@ -16,10 +16,18 @@ class SkString;
 
 class SK_API SkParsePath {
 public:
-    static bool FromSVGString(const char str[], SkPath*);
+    static std::optional<SkPath> FromSVGString(const char str[]);
+    // Deprecated
+    static bool FromSVGString(const char str[], SkPath* outPath) {
+        if (auto result = FromSVGString(str)) {
+            *outPath = *result;
+            return true;
+        }
+        return false;
+    }
 
     enum class PathEncoding { Absolute, Relative };
-    static void ToSVGString(const SkPath&, SkString*, PathEncoding = PathEncoding::Absolute);
+    static SkString ToSVGString(const SkPath&, PathEncoding = PathEncoding::Absolute);
 };
 
 #endif

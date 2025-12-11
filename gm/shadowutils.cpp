@@ -17,12 +17,13 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkShadowFlags.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/utils/SkShadowUtils.h"
 
 #include <initializer_list>
+
+using namespace skia_private;
 
 void draw_shadow(SkCanvas* canvas, const SkPath& path, SkScalar height, SkColor color,
                  SkPoint3 lightPos, SkScalar lightR, bool isAmbient, uint32_t flags) {
@@ -46,7 +47,7 @@ enum ShadowMode {
 };
 
 void draw_paths(SkCanvas* canvas, ShadowMode mode) {
-    SkTArray<SkPath> paths;
+    TArray<SkPath> paths;
     paths.push_back(SkPath::RRect(SkRect::MakeWH(50, 50), 10, 10.00002f));
     SkRRect oddRRect;
     oddRRect.setNinePatch(SkRect::MakeWH(50, 50), 9, 13, 6, 16);
@@ -57,32 +58,36 @@ void draw_paths(SkCanvas* canvas, ShadowMode mode) {
     paths.push_back(SkPath::Oval(SkRect::MakeWH(20, 60)));
 
     // star
-    SkTArray<SkPath> concavePaths;
-    concavePaths.push_back().moveTo(0.0f, -33.3333f);
-    concavePaths.back().lineTo(9.62f, -16.6667f);
-    concavePaths.back().lineTo(28.867f, -16.6667f);
-    concavePaths.back().lineTo(19.24f, 0.0f);
-    concavePaths.back().lineTo(28.867f, 16.6667f);
-    concavePaths.back().lineTo(9.62f, 16.6667f);
-    concavePaths.back().lineTo(0.0f, 33.3333f);
-    concavePaths.back().lineTo(-9.62f, 16.6667f);
-    concavePaths.back().lineTo(-28.867f, 16.6667f);
-    concavePaths.back().lineTo(-19.24f, 0.0f);
-    concavePaths.back().lineTo(-28.867f, -16.6667f);
-    concavePaths.back().lineTo(-9.62f, -16.6667f);
-    concavePaths.back().close();
+    TArray<SkPath> concavePaths;
+    concavePaths.push_back(SkPathBuilder()
+                           .moveTo(0.0f, -33.3333f)
+                           .lineTo(9.62f, -16.6667f)
+                           .lineTo(28.867f, -16.6667f)
+                           .lineTo(19.24f, 0.0f)
+                           .lineTo(28.867f, 16.6667f)
+                           .lineTo(9.62f, 16.6667f)
+                           .lineTo(0.0f, 33.3333f)
+                           .lineTo(-9.62f, 16.6667f)
+                           .lineTo(-28.867f, 16.6667f)
+                           .lineTo(-19.24f, 0.0f)
+                           .lineTo(-28.867f, -16.6667f)
+                           .lineTo(-9.62f, -16.6667f)
+                           .close()
+                           .detach());
 
     // dumbbell
-    concavePaths.push_back().moveTo(50, 0);
-    concavePaths.back().cubicTo(100, 25, 60, 50, 50, 0);
-    concavePaths.back().cubicTo(0, -25, 40, -50, 50, 0);
+    concavePaths.push_back(SkPathBuilder()
+                           .moveTo(50, 0)
+                           .cubicTo(100, 25, 60, 50, 50, 0)
+                           .cubicTo(0, -25, 40, -50, 50, 0)
+                           .detach());
 
     static constexpr SkScalar kPad = 15.f;
     static constexpr SkScalar kLightR = 100.f;
     static constexpr SkScalar kHeight = 50.f;
 
     // transform light position relative to canvas to handle tiling
-    SkPoint lightXY = canvas->getTotalMatrix().mapXY(250, 400);
+    SkPoint lightXY = canvas->getTotalMatrix().mapPoint({250, 400});
     SkPoint3 lightPos = { lightXY.fX, lightXY.fY, 500 };
 
     canvas->translate(3 * kPad, 3 * kPad);
@@ -90,8 +95,8 @@ void draw_paths(SkCanvas* canvas, ShadowMode mode) {
     SkScalar x = 0;
     SkScalar dy = 0;
     SkTDArray<SkMatrix> matrices;
-    matrices.push()->reset();
-    matrices.push()->setRotate(33.f, 25.f, 25.f).postScale(1.2f, 0.8f, 25.f, 25.f);
+    matrices.append()->reset();
+    matrices.append()->setRotate(33.f, 25.f, 25.f).postScale(1.2f, 0.8f, 25.f, 25.f);
     for (auto& m : matrices) {
         for (int flags : { kNone_ShadowFlag, kTransparentOccluder_ShadowFlag }) {
             int pathCounter = 0;
@@ -242,7 +247,7 @@ DEF_SIMPLE_GM(shadow_utils_gaussian_colorfilter, canvas, 512, 256) {
 
     const SkColor colors[] = { 0, 0xFF000000 };
     auto sh = SkGradientShader::MakeRadial({r.centerX(), r.centerY()}, r.width(),
-                                           colors, nullptr, SK_ARRAY_COUNT(colors),
+                                           colors, nullptr, std::size(colors),
                                            SkTileMode::kClamp);
 
     SkPaint redPaint;
@@ -302,7 +307,7 @@ DEF_SIMPLE_GM(shadow_utils_directional, canvas, 256, 384) {
     // scale
     for (int i = 0; i < 3; ++i) {
         canvas->save();
-        SkScalar scaleFactor = sk_float_pow(2.0, -i);
+        SkScalar scaleFactor = std::pow(2.0, -i);
         canvas->translate(35 + 80*i, 185);
         canvas->scale(scaleFactor, scaleFactor);
         SkShadowUtils::DrawShadow(canvas, rrect, SkPoint3{ 0, 0, kHeight }, lightPos,

@@ -7,37 +7,63 @@
 
 #include "tools/debugger/DrawCommand.h"
 
-#include <algorithm>
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkClipOp.h"
 #include "include/core/SkColorFilter.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkDrawable.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontTypes.h"
 #include "include/core/SkImageFilter.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMaskFilter.h"
 #include "include/core/SkPathEffect.h"
+#include "include/core/SkPathTypes.h"
 #include "include/core/SkPicture.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkPoint3.h"
+#include "include/core/SkRSXform.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkTypeface.h"
-#include "include/effects/SkDashPathEffect.h"
 #include "include/encode/SkPngEncoder.h"
-#include "include/private/SkShadowFlags.h"
-#include "include/private/SkTHash.h"
-#include "src/core/SkAutoMalloc.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/base/SkTo.h"
+#include "include/utils/SkShadowUtils.h"
+#include "src/base/SkAutoMalloc.h"
+#include "src/base/SkTLazy.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/core/SkLatticeIter.h"
+#include "src/core/SkFontPriv.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkPaintDefaults.h"
-#include "src/core/SkPaintPriv.h"
-#include "src/core/SkReadBuffer.h"
+#include "src/core/SkPathEffectBase.h"
 #include "src/core/SkRectPriv.h"
 #include "src/core/SkTextBlobPriv.h"
 #include "src/core/SkWriteBuffer.h"
 #include "src/image/SkImage_Base.h"
+#include "src/utils/SkJSONWriter.h"
+#include "tools/UrlDataManager.h"
 #include "tools/debugger/DebugLayerManager.h"
 #include "tools/debugger/JsonWriteBuffer.h"
 
-#if SK_SUPPORT_GPU
-#include "include/gpu/GrDirectContext.h"
-#else
+#include <algorithm>
+#include <cstring>
+#include <utility>
+
 class GrDirectContext;
+
+#if defined(SK_GANESH)
+#include "include/gpu/ganesh/GrRecordingContext.h"
+#include "include/private/gpu/ganesh/GrImageContext.h"
 #endif
 
+#define DEBUGCANVAS_ATTRIBUTE_DUMP "dump"
 #define DEBUGCANVAS_ATTRIBUTE_COMMAND "command"
 #define DEBUGCANVAS_ATTRIBUTE_VISIBLE "visible"
 #define DEBUGCANVAS_ATTRIBUTE_MATRIX "matrix"
@@ -52,10 +78,12 @@ class GrDirectContext;
 #define DEBUGCANVAS_ATTRIBUTE_MODE "mode"
 #define DEBUGCANVAS_ATTRIBUTE_POINTS "points"
 #define DEBUGCANVAS_ATTRIBUTE_PATH "path"
+#define DEBUGCANVAS_ATTRIBUTE_CLUSTERS "clusters"
 #define DEBUGCANVAS_ATTRIBUTE_TEXT "text"
 #define DEBUGCANVAS_ATTRIBUTE_COLOR "color"
 #define DEBUGCANVAS_ATTRIBUTE_ALPHA "alpha"
 #define DEBUGCANVAS_ATTRIBUTE_BLENDMODE "blendMode"
+#define DEBUGCANVAS_ATTRIBUTE_SAMPLING "sampling"
 #define DEBUGCANVAS_ATTRIBUTE_STYLE "style"
 #define DEBUGCANVAS_ATTRIBUTE_STROKEWIDTH "strokeWidth"
 #define DEBUGCANVAS_ATTRIBUTE_STROKEMITER "strokeMiter"
@@ -256,7 +284,7 @@ const char* DrawCommand::GetCommandString(OpType type) {
 }
 
 void DrawCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager) const {
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_COMMAND, this->GetCommandString(fOpType));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_COMMAND, GetCommandString(fOpType));
     writer.appendBool(DEBUGCANVAS_ATTRIBUTE_VISIBLE, this->isVisible());
 }
 
@@ -362,33 +390,14 @@ void render_shadow(SkCanvas* canvas, const SkPath& path, SkDrawShadowRec rec) {
     canvas->private_draw_shadow_rec(path, rec);
 }
 
-static const char* const gBlendModeMap[] = {
-        "clear",      "src",        "dst",      "srcOver",    "dstOver",   "srcIn",     "dstIn",
-        "srcOut",     "dstOut",     "srcATop",  "dstATop",    "xor",       "plus",      "modulate",
-
-        "screen",
-
-        "overlay",    "darken",     "lighten",  "colorDodge", "colorBurn", "hardLight", "softLight",
-        "difference", "exclusion",  "multiply",
-
-        "hue",        "saturation", "color",    "luminosity",
-};
-
-static_assert(SK_ARRAY_COUNT(gBlendModeMap) == static_cast<size_t>(SkBlendMode::kLastMode) + 1,
-              "blendMode mismatch");
-static_assert(SK_ARRAY_COUNT(gBlendModeMap) == static_cast<size_t>(SkBlendMode::kLuminosity) + 1,
-              "blendMode mismatch");
-
 void apply_paint_blend_mode(const SkPaint& paint, SkJSONWriter& writer) {
     const auto mode = paint.getBlendMode_or(SkBlendMode::kSrcOver);
     if (mode != SkBlendMode::kSrcOver) {
-        SkASSERT(static_cast<size_t>(mode) < SK_ARRAY_COUNT(gBlendModeMap));
-        writer.appendString(DEBUGCANVAS_ATTRIBUTE_BLENDMODE,
-                            gBlendModeMap[static_cast<size_t>(mode)]);
+        writer.appendCString(DEBUGCANVAS_ATTRIBUTE_BLENDMODE, SkBlendMode_Name(mode));
     }
 }
 
-};  // namespace
+}  // namespace
 
 void DrawCommand::MakeJsonColor(SkJSONWriter& writer, const SkColor color) {
     writer.beginArray(nullptr, false);
@@ -484,46 +493,52 @@ void DrawCommand::MakeJsonMatrix44(SkJSONWriter& writer, const SkM44& matrix) {
 
 void DrawCommand::MakeJsonPath(SkJSONWriter& writer, const SkPath& path) {
     writer.beginObject();
+
+    SkDynamicMemoryWStream wstream;
+    path.dump(&wstream, false);
+    auto data = wstream.detachAsData();
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_DUMP,
+                        static_cast<const char*>(data->data()), data->size());
+
     switch (path.getFillType()) {
         case SkPathFillType::kWinding:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_WINDING);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_WINDING);
             break;
         case SkPathFillType::kEvenOdd:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_EVENODD);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_EVENODD);
             break;
         case SkPathFillType::kInverseWinding:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
-                                DEBUGCANVAS_FILLTYPE_INVERSEWINDING);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
+                                 DEBUGCANVAS_FILLTYPE_INVERSEWINDING);
             break;
         case SkPathFillType::kInverseEvenOdd:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
-                                DEBUGCANVAS_FILLTYPE_INVERSEEVENODD);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
+                                 DEBUGCANVAS_FILLTYPE_INVERSEEVENODD);
             break;
     }
     writer.beginArray(DEBUGCANVAS_ATTRIBUTE_VERBS);
     SkPath::Iter iter(path, false);
-    SkPoint      pts[4];
-    SkPath::Verb verb;
-    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
-        if (verb == SkPath::kClose_Verb) {
-            writer.appendString(DEBUGCANVAS_VERB_CLOSE);
+    while (auto rec = iter.next()) {
+        if (rec->fVerb == SkPathVerb::kClose) {
+            writer.appendNString(DEBUGCANVAS_VERB_CLOSE);
             continue;
         }
         writer.beginObject();  // verb
-        switch (verb) {
-            case SkPath::kLine_Verb: {
+        SkSpan<const SkPoint> pts = rec->fPoints;
+        switch (rec->fVerb) {
+            case SkPathVerb::kLine: {
                 writer.appendName(DEBUGCANVAS_VERB_LINE);
                 MakeJsonPoint(writer, pts[1]);
                 break;
             }
-            case SkPath::kQuad_Verb: {
+            case SkPathVerb::kQuad: {
                 writer.beginArray(DEBUGCANVAS_VERB_QUAD);
                 MakeJsonPoint(writer, pts[1]);
                 MakeJsonPoint(writer, pts[2]);
                 writer.endArray();  // quad coords
                 break;
             }
-            case SkPath::kCubic_Verb: {
+            case SkPathVerb::kCubic: {
                 writer.beginArray(DEBUGCANVAS_VERB_CUBIC);
                 MakeJsonPoint(writer, pts[1]);
                 MakeJsonPoint(writer, pts[2]);
@@ -531,21 +546,20 @@ void DrawCommand::MakeJsonPath(SkJSONWriter& writer, const SkPath& path) {
                 writer.endArray();  // cubic coords
                 break;
             }
-            case SkPath::kConic_Verb: {
+            case SkPathVerb::kConic: {
                 writer.beginArray(DEBUGCANVAS_VERB_CONIC);
                 MakeJsonPoint(writer, pts[1]);
                 MakeJsonPoint(writer, pts[2]);
-                writer.appendFloat(iter.conicWeight());
+                writer.appendFloat(rec->conicWeight());
                 writer.endArray();  // conic coords
                 break;
             }
-            case SkPath::kMove_Verb: {
+            case SkPathVerb::kMove: {
                 writer.appendName(DEBUGCANVAS_VERB_MOVE);
                 MakeJsonPoint(writer, pts[0]);
                 break;
             }
-            case SkPath::kClose_Verb:
-            case SkPath::kDone_Verb:
+            case SkPathVerb::kClose:
                 // Unreachable
                 break;
         }
@@ -557,9 +571,18 @@ void DrawCommand::MakeJsonPath(SkJSONWriter& writer, const SkPath& path) {
 
 void DrawCommand::MakeJsonRegion(SkJSONWriter& writer, const SkRegion& region) {
     // TODO: Actually serialize the rectangles, rather than just devolving to path
-    SkPath path;
-    region.getBoundaryPath(&path);
-    MakeJsonPath(writer, path);
+    MakeJsonPath(writer, region.getBoundaryPath());
+}
+
+void DrawCommand::MakeJsonSampling(SkJSONWriter& writer, const SkSamplingOptions& sampling) {
+    writer.beginObject();
+    writer.appendS32("maxAniso", sampling.maxAniso);
+    writer.appendBool("useCubic", sampling.useCubic);
+    writer.appendS32("filter", (int)sampling.filter);
+    writer.appendS32("mipmap", (int)sampling.mipmap);
+    writer.appendFloat("cubic.B", sampling.cubic.B);
+    writer.appendFloat("cubic.C", sampling.cubic.C);
+    writer.endObject();
 }
 
 static const char* clipop_name(SkClipOp op) {
@@ -605,14 +628,14 @@ static SkString encode_data(const void*     bytes,
 void DrawCommand::flatten(const SkFlattenable* flattenable,
                           SkJSONWriter&        writer,
                           UrlDataManager&      urlDataManager) {
-    SkBinaryWriteBuffer buffer;
+    SkBinaryWriteBuffer buffer({});  // TODO(kjlubick, bungeman) feed SkSerialProcs through API
     flattenable->flatten(buffer);
     void* data = sk_malloc_throw(buffer.bytesWritten());
     buffer.writeToMemory(data);
     SkString url =
             encode_data(data, buffer.bytesWritten(), "application/octet-stream", urlDataManager);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_NAME, flattenable->getTypeName());
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url.c_str());
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_NAME, flattenable->getTypeName());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url);
 
     writer.beginObject(DEBUGCANVAS_ATTRIBUTE_VALUES);
     JsonWriteBuffer jsonBuffer(&writer, &urlDataManager);
@@ -622,7 +645,7 @@ void DrawCommand::flatten(const SkFlattenable* flattenable,
     sk_free(data);
 }
 
-void DrawCommand::WritePNG(SkBitmap bitmap, SkWStream& out) {
+void DrawCommand::WritePNG(const SkBitmap& bitmap, SkWStream& out) {
     SkPixmap pm;
     SkAssertResult(bitmap.peekPixels(&pm));
 
@@ -651,7 +674,7 @@ bool DrawCommand::flatten(const SkImage&  image,
             SkImageInfo::Make(image.dimensions(), kN32_SkColorType, kPremul_SkAlphaType);
     // "cheat" for this debug tool and use image's context
     GrDirectContext* dContext = nullptr;
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     dContext = GrAsDirectContext(as_IB(&image)->context());
 #endif
     if (!image.readPixels(dContext, dstInfo, buffer.get(), rowBytes, 0, 0)) {
@@ -677,8 +700,8 @@ bool DrawCommand::flatten(const SkImage&  image,
       writer.endObject();
       return false;
     }
-    SkString      url = encode_data(encoded->data(), encoded->size(), "image/png", urlDataManager);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url.c_str());
+    SkString url = encode_data(encoded->data(), encoded->size(), "image/png", urlDataManager);
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url);
     writer.endObject();
     return true;
 }
@@ -708,8 +731,8 @@ bool DrawCommand::flatten(const SkBitmap& bitmap,
                           SkJSONWriter&   writer,
                           UrlDataManager& urlDataManager) {
     sk_sp<SkImage> image(bitmap.asImage());
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_COLOR, color_type_name(bitmap.colorType()));
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_ALPHA, alpha_type_name(bitmap.alphaType()));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_COLOR, color_type_name(bitmap.colorType()));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_ALPHA, alpha_type_name(bitmap.alphaType()));
     // Image will appear to have no uses, TODO(nifong): provide the user with a useful explanation
     bool success = flatten(*image, writer, urlDataManager);
     return success;
@@ -720,16 +743,16 @@ static void apply_font_hinting(const SkFont& font, SkJSONWriter& writer) {
     if (hinting != SkPaintDefaults_Hinting) {
         switch (hinting) {
             case SkFontHinting::kNone:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_NONE);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_NONE);
                 break;
             case SkFontHinting::kSlight:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_SLIGHT);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_SLIGHT);
                 break;
             case SkFontHinting::kNormal:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_NORMAL);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_NORMAL);
                 break;
             case SkFontHinting::kFull:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_FULL);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_HINTING, DEBUGCANVAS_HINTING_FULL);
                 break;
         }
     }
@@ -738,13 +761,14 @@ static void apply_font_hinting(const SkFont& font, SkJSONWriter& writer) {
 static void apply_font_edging(const SkFont& font, SkJSONWriter& writer) {
     switch (font.getEdging()) {
         case SkFont::Edging::kAlias:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_EDGING, DEBUGCANVAS_EDGING_ALIAS);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_EDGING, DEBUGCANVAS_EDGING_ALIAS);
             break;
         case SkFont::Edging::kAntiAlias:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_EDGING, DEBUGCANVAS_EDGING_ANTIALIAS);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_EDGING, DEBUGCANVAS_EDGING_ANTIALIAS);
             break;
         case SkFont::Edging::kSubpixelAntiAlias:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_EDGING, DEBUGCANVAS_EDGING_SUBPIXELANTIALIAS);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_EDGING,
+                                 DEBUGCANVAS_EDGING_SUBPIXELANTIALIAS);
             break;
     }
 }
@@ -762,11 +786,11 @@ static void apply_paint_style(const SkPaint& paint, SkJSONWriter& writer) {
     if (style != SkPaint::kFill_Style) {
         switch (style) {
             case SkPaint::kStroke_Style: {
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_STYLE_STROKE);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_STYLE_STROKE);
                 break;
             }
             case SkPaint::kStrokeAndFill_Style: {
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_STYLE_STROKEANDFILL);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_STYLE_STROKEANDFILL);
                 break;
             }
             default: SkASSERT(false);
@@ -779,13 +803,13 @@ static void apply_paint_cap(const SkPaint& paint, SkJSONWriter& writer) {
     if (cap != SkPaint::kDefault_Cap) {
         switch (cap) {
             case SkPaint::kButt_Cap:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_BUTT);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_BUTT);
                 break;
             case SkPaint::kRound_Cap:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_ROUND);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_ROUND);
                 break;
             case SkPaint::kSquare_Cap:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_SQUARE);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_CAP, DEBUGCANVAS_CAP_SQUARE);
                 break;
             default: SkASSERT(false);
         }
@@ -797,13 +821,13 @@ static void apply_paint_join(const SkPaint& paint, SkJSONWriter& writer) {
     if (join != SkPaint::kDefault_Join) {
         switch (join) {
             case SkPaint::kMiter_Join:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_MITER_JOIN);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_MITER_JOIN);
                 break;
             case SkPaint::kRound_Join:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_ROUND_JOIN);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_ROUND_JOIN);
                 break;
             case SkPaint::kBevel_Join:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_BEVEL_JOIN);
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STROKEJOIN, DEBUGCANVAS_BEVEL_JOIN);
                 break;
             default: SkASSERT(false);
         }
@@ -821,16 +845,16 @@ static void apply_paint_maskfilter(const SkPaint&  paint,
             writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_SIGMA, blurRec.fSigma);
             switch (blurRec.fStyle) {
                 case SkBlurStyle::kNormal_SkBlurStyle:
-                    writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_NORMAL);
+                    writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_NORMAL);
                     break;
                 case SkBlurStyle::kSolid_SkBlurStyle:
-                    writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_SOLID);
+                    writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_SOLID);
                     break;
                 case SkBlurStyle::kOuter_SkBlurStyle:
-                    writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_OUTER);
+                    writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_OUTER);
                     break;
                 case SkBlurStyle::kInner_SkBlurStyle:
-                    writer.appendString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_INNER);
+                    writer.appendNString(DEBUGCANVAS_ATTRIBUTE_STYLE, DEBUGCANVAS_BLURSTYLE_INNER);
                     break;
                 default: SkASSERT(false);
             }
@@ -848,19 +872,14 @@ static void apply_paint_patheffect(const SkPaint&  paint,
                                    UrlDataManager& urlDataManager) {
     SkPathEffect* pathEffect = paint.getPathEffect();
     if (pathEffect != nullptr) {
-        SkPathEffect::DashInfo dashInfo;
-        SkPathEffect::DashType dashType = pathEffect->asADash(&dashInfo);
-        if (dashType == SkPathEffect::kDash_DashType) {
-            dashInfo.fIntervals = (SkScalar*)sk_malloc_throw(dashInfo.fCount * sizeof(SkScalar));
-            pathEffect->asADash(&dashInfo);
+        if (const auto dashInfo = as_PEB(pathEffect)->asADash()) {
             writer.beginObject(DEBUGCANVAS_ATTRIBUTE_DASHING);
             writer.beginArray(DEBUGCANVAS_ATTRIBUTE_INTERVALS, false);
-            for (int32_t i = 0; i < dashInfo.fCount; i++) {
-                writer.appendFloat(dashInfo.fIntervals[i]);
+            for (SkScalar value : dashInfo->fIntervals) {
+                writer.appendFloat(value);
             }
             writer.endArray();  // intervals
-            sk_free(dashInfo.fIntervals);
-            writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_PHASE, dashInfo.fPhase);
+            writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_PHASE, dashInfo->fPhase);
             writer.endObject();  // dashing
         } else {
             writer.beginObject(DEBUGCANVAS_ATTRIBUTE_PATHEFFECT);
@@ -873,7 +892,7 @@ static void apply_paint_patheffect(const SkPaint&  paint,
 static void apply_font_typeface(const SkFont&   font,
                                 SkJSONWriter&   writer,
                                 UrlDataManager& urlDataManager) {
-    SkTypeface* typeface = font.getTypefaceOrDefault();
+    SkTypeface* typeface = font.getTypeface();
     if (typeface != nullptr) {
         writer.beginObject(DEBUGCANVAS_ATTRIBUTE_TYPEFACE);
         SkDynamicMemoryWStream buffer;
@@ -882,7 +901,7 @@ static void apply_font_typeface(const SkFont&   font,
         buffer.copyTo(data);
         SkString url = encode_data(
                 data, buffer.bytesWritten(), "application/octet-stream", urlDataManager);
-        writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url.c_str());
+        writer.appendString(DEBUGCANVAS_ATTRIBUTE_DATA, url);
         sk_free(data);
         writer.endObject();
     }
@@ -1004,7 +1023,7 @@ void ClipPathCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManage
     INHERITED::toJSON(writer, urlDataManager);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_PATH);
     MakeJsonPath(writer, fPath);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
     writer.appendBool(DEBUGCANVAS_ATTRIBUTE_ANTIALIAS, fDoAA);
 }
 
@@ -1020,7 +1039,7 @@ void ClipRegionCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataMana
     INHERITED::toJSON(writer, urlDataManager);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_REGION);
     MakeJsonRegion(writer, fRegion);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
 }
 
 ClipRectCommand::ClipRectCommand(const SkRect& rect, SkClipOp op, bool doAA)
@@ -1036,11 +1055,11 @@ void ClipRectCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManage
     INHERITED::toJSON(writer, urlDataManager);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
     MakeJsonRect(writer, fRect);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
     writer.appendBool(DEBUGCANVAS_ATTRIBUTE_ANTIALIAS, fDoAA);
 
     SkString desc;
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, fRect)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, fRect));
 }
 
 ClipRRectCommand::ClipRRectCommand(const SkRRect& rrect, SkClipOp op, bool doAA)
@@ -1061,13 +1080,13 @@ void ClipRRectCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManag
     INHERITED::toJSON(writer, urlDataManager);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
     make_json_rrect(writer, fRRect);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
     writer.appendBool(DEBUGCANVAS_ATTRIBUTE_ANTIALIAS, fDoAA);
 }
 
 ClipShaderCommand::ClipShaderCommand(sk_sp<SkShader> cs, SkClipOp op)
         : INHERITED(kClipShader_OpType) {
-    fShader = cs;
+    fShader = std::move(cs);
     fOp     = op;
 }
 
@@ -1083,7 +1102,7 @@ bool ClipShaderCommand::render(SkCanvas* canvas) const {
 void ClipShaderCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager) const {
     INHERITED::toJSON(writer, urlDataManager);
     apply_flattenable(DEBUGCANVAS_ATTRIBUTE_SHADER, fShader.get(), writer, urlDataManager);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_REGIONOP, clipop_name(fOp));
 }
 
 ResetClipCommand::ResetClipCommand() : INHERITED(kResetClip_OpType) {}
@@ -1100,16 +1119,16 @@ namespace {
     void writeMatrixType(SkJSONWriter& writer, const SkMatrix& m) {
         switch (m.getType()) {
             case SkMatrix::kTranslate_Mask:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (translate)");
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (translate)");
                 break;
             case SkMatrix::kScale_Mask:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (scale)");
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (scale)");
                 break;
             case SkMatrix::kAffine_Mask:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (rotation or skew)");
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (rotation or skew)");
                 break;
             case SkMatrix::kPerspective_Mask:
-                writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (perspective)");
+                writer.appendNString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, " (perspective)");
                 break;
             default:
                 break;
@@ -1152,19 +1171,23 @@ void DrawAnnotationCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlData
 
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
     MakeJsonRect(writer, fRect);
-    writer.appendString("key", fKey.c_str());
+    writer.appendString("key", fKey);
     if (fValue) {
-        writer.appendString("value", std::string(
-            static_cast<const char*>(fValue->data()), fValue->size()
-            ).c_str());
+        writer.appendString("value", static_cast<const char*>(fValue->data()), fValue->size());
     }
 
     SkString desc;
     str_append(&desc, fRect)->appendf(" %s", fKey.c_str());
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, desc.c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, desc);
 }
 
 ////
+
+template <typename T> void assign_if_not_null(std::optional<T>& object, const T* pointer) {
+    if (pointer) {
+        object = *pointer;
+    }
+}
 
 DrawImageCommand::DrawImageCommand(const SkImage*           image,
                                    SkScalar                 left,
@@ -1175,11 +1198,12 @@ DrawImageCommand::DrawImageCommand(const SkImage*           image,
         , fImage(SkRef(image))
         , fLeft(left)
         , fTop(top)
-        , fSampling(sampling)
-        , fPaint(paint) {}
+        , fSampling(sampling) {
+    assign_if_not_null(fPaint, paint);
+}
 
 void DrawImageCommand::execute(SkCanvas* canvas) const {
-    canvas->drawImage(fImage.get(), fLeft, fTop, fSampling, fPaint.getMaybeNull());
+    canvas->drawImage(fImage.get(), fLeft, fTop, fSampling, SkOptAddressOrNull(fPaint));
 }
 
 bool DrawImageCommand::render(SkCanvas* canvas) const {
@@ -1203,26 +1227,28 @@ void DrawImageCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManag
     flatten(*fImage, writer, urlDataManager);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
     MakeJsonPoint(writer, fLeft, fTop);
-    if (fPaint.isValid()) {
+    if (fPaint.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
         MakeJsonPaint(writer, *fPaint, urlDataManager);
     }
+    writer.appendName(DEBUGCANVAS_ATTRIBUTE_SAMPLING);
+    MakeJsonSampling(writer, fSampling);
 
     writer.appendU32(DEBUGCANVAS_ATTRIBUTE_UNIQUE_ID, fImage->uniqueID());
     writer.appendS32(DEBUGCANVAS_ATTRIBUTE_WIDTH, fImage->width());
     writer.appendS32(DEBUGCANVAS_ATTRIBUTE_HEIGHT, fImage->height());
     switch (fImage->alphaType()) {
         case kOpaque_SkAlphaType:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_OPAQUE);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_OPAQUE);
             break;
         case kPremul_SkAlphaType:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_PREMUL);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_PREMUL);
             break;
         case kUnpremul_SkAlphaType:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_UNPREMUL);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_UNPREMUL);
             break;
         default:
-            writer.appendString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_UNKNOWN);
+            writer.appendNString(DEBUGCANVAS_ATTRIBUTE_ALPHA, DEBUGCANVAS_ALPHATYPE_UNKNOWN);
             break;
     }
 }
@@ -1236,11 +1262,12 @@ DrawImageLatticeCommand::DrawImageLatticeCommand(const SkImage*           image,
         , fImage(SkRef(image))
         , fLattice(lattice)
         , fDst(dst)
-        , fFilter(filter)
-        , fPaint(paint) {}
+        , fFilter(filter) {
+    assign_if_not_null(fPaint, paint);
+}
 
 void DrawImageLatticeCommand::execute(SkCanvas* canvas) const {
-    canvas->drawImageLattice(fImage.get(), fLattice, fDst, fFilter, fPaint.getMaybeNull());
+    canvas->drawImageLattice(fImage.get(), fLattice, fDst, fFilter, SkOptAddressOrNull(fPaint));
 }
 
 bool DrawImageLatticeCommand::render(SkCanvas* canvas) const {
@@ -1264,13 +1291,13 @@ void DrawImageLatticeCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDa
     MakeJsonLattice(writer, fLattice);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_DST);
     MakeJsonRect(writer, fDst);
-    if (fPaint.isValid()) {
+    if (fPaint.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
         MakeJsonPaint(writer, *fPaint, urlDataManager);
     }
 
     SkString desc;
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, fDst)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, fDst));
 }
 
 DrawImageRectCommand::DrawImageRectCommand(const SkImage*              image,
@@ -1284,11 +1311,13 @@ DrawImageRectCommand::DrawImageRectCommand(const SkImage*              image,
         , fSrc(src)
         , fDst(dst)
         , fSampling(sampling)
-        , fPaint(paint)
-        , fConstraint(constraint) {}
+        , fConstraint(constraint) {
+    assign_if_not_null(fPaint, paint);
+}
 
 void DrawImageRectCommand::execute(SkCanvas* canvas) const {
-    canvas->drawImageRect(fImage.get(), fSrc, fDst, fSampling, fPaint.getMaybeNull(), fConstraint);
+    canvas->drawImageRect(fImage.get(), fSrc, fDst, fSampling,
+                          SkOptAddressOrNull(fPaint), fConstraint);
 }
 
 bool DrawImageRectCommand::render(SkCanvas* canvas) const {
@@ -1312,7 +1341,9 @@ void DrawImageRectCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataM
     MakeJsonRect(writer, fSrc);
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_DST);
     MakeJsonRect(writer, fDst);
-    if (fPaint.isValid()) {
+    writer.appendName(DEBUGCANVAS_ATTRIBUTE_SAMPLING);
+    MakeJsonSampling(writer, fSampling);
+    if (fPaint.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
         MakeJsonPaint(writer, *fPaint, urlDataManager);
     }
@@ -1321,7 +1352,7 @@ void DrawImageRectCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataM
     }
 
     SkString desc;
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, fDst)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, fDst));
 }
 
 DrawImageRectLayerCommand::DrawImageRectLayerCommand(DebugLayerManager*    layerManager,
@@ -1339,12 +1370,14 @@ DrawImageRectLayerCommand::DrawImageRectLayerCommand(DebugLayerManager*    layer
         , fSrc(src)
         , fDst(dst)
         , fSampling(sampling)
-        , fPaint(paint)
-        , fConstraint(constraint) {}
+        , fConstraint(constraint) {
+    assign_if_not_null(fPaint, paint);
+}
 
 void DrawImageRectLayerCommand::execute(SkCanvas* canvas) const {
     sk_sp<SkImage> snapshot = fLayerManager->getLayerAsImage(fNodeId, fFrame);
-    canvas->drawImageRect(snapshot.get(), fSrc, fDst, SkSamplingOptions(), fPaint.getMaybeNull(), fConstraint);
+    canvas->drawImageRect(snapshot.get(), fSrc, fDst, SkSamplingOptions(),
+                          SkOptAddressOrNull(fPaint), fConstraint);
 }
 
 bool DrawImageRectLayerCommand::render(SkCanvas* canvas) const {
@@ -1371,7 +1404,9 @@ void DrawImageRectLayerCommand::toJSON(SkJSONWriter& writer, UrlDataManager& url
 
     writer.appendName(DEBUGCANVAS_ATTRIBUTE_DST);
     MakeJsonRect(writer, fDst);
-    if (fPaint.isValid()) {
+    writer.appendName(DEBUGCANVAS_ATTRIBUTE_SAMPLING);
+    MakeJsonSampling(writer, fSampling);
+    if (fPaint.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
         MakeJsonPaint(writer, *fPaint, urlDataManager);
     }
@@ -1380,7 +1415,7 @@ void DrawImageRectLayerCommand::toJSON(SkJSONWriter& writer, UrlDataManager& url
     }
 
     SkString desc;
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, fDst)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, fDst));
 }
 
 DrawOvalCommand::DrawOvalCommand(const SkRect& oval, const SkPaint& paint)
@@ -1543,21 +1578,22 @@ BeginDrawPictureCommand::BeginDrawPictureCommand(const SkPicture* picture,
                                                  const SkMatrix*  matrix,
                                                  const SkPaint*   paint)
         : INHERITED(kBeginDrawPicture_OpType)
-        , fPicture(SkRef(picture))
-        , fMatrix(matrix)
-        , fPaint(paint) {}
+        , fPicture(SkRef(picture)) {
+    assign_if_not_null(fMatrix, matrix);
+    assign_if_not_null(fPaint, paint);
+}
 
 void BeginDrawPictureCommand::execute(SkCanvas* canvas) const {
-    if (fPaint.isValid()) {
+    if (fPaint.has_value()) {
         SkRect bounds = fPicture->cullRect();
-        if (fMatrix.isValid()) {
+        if (fMatrix.has_value()) {
             fMatrix->mapRect(&bounds);
         }
-        canvas->saveLayer(&bounds, fPaint.get());
+        canvas->saveLayer(&bounds, &fPaint.value());
     }
 
-    if (fMatrix.isValid()) {
-        if (!fPaint.isValid()) {
+    if (fMatrix.has_value()) {
+        if (!fPaint.has_value()) {
             canvas->save();
         }
         canvas->concat(*fMatrix);
@@ -1593,7 +1629,7 @@ DrawPointsCommand::DrawPointsCommand(SkCanvas::PointMode mode,
         : INHERITED(kDrawPoints_OpType), fMode(mode), fPts(pts, count), fPaint(paint) {}
 
 void DrawPointsCommand::execute(SkCanvas* canvas) const {
-    canvas->drawPoints(fMode, fPts.count(), fPts.begin(), fPaint);
+    canvas->drawPoints(fMode, fPts, fPaint);
 }
 
 bool DrawPointsCommand::render(SkCanvas* canvas) const {
@@ -1603,7 +1639,7 @@ bool DrawPointsCommand::render(SkCanvas* canvas) const {
     SkRect bounds;
 
     bounds.setEmpty();
-    for (int i = 0; i < fPts.count(); ++i) {
+    for (int i = 0; i < fPts.size(); ++i) {
         SkRectPriv::GrowToInclude(&bounds, fPts[i]);
     }
 
@@ -1613,7 +1649,7 @@ bool DrawPointsCommand::render(SkCanvas* canvas) const {
     p.setColor(SK_ColorBLACK);
     p.setStyle(SkPaint::kStroke_Style);
 
-    canvas->drawPoints(fMode, fPts.count(), fPts.begin(), p);
+    canvas->drawPoints(fMode, fPts, p);
     canvas->restore();
 
     return true;
@@ -1621,9 +1657,9 @@ bool DrawPointsCommand::render(SkCanvas* canvas) const {
 
 void DrawPointsCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager) const {
     INHERITED::toJSON(writer, urlDataManager);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_MODE, pointmode_name(fMode));
+    writer.appendCString(DEBUGCANVAS_ATTRIBUTE_MODE, pointmode_name(fMode));
     writer.beginArray(DEBUGCANVAS_ATTRIBUTE_POINTS);
-    for (int i = 0; i < fPts.count(); i++) {
+    for (int i = 0; i < fPts.size(); i++) {
         MakeJsonPoint(writer, fPts[i]);
     }
     writer.endArray();  // points
@@ -1661,10 +1697,25 @@ bool DrawTextBlobCommand::render(SkCanvas* canvas) const {
 
 void DrawTextBlobCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager) const {
     INHERITED::toJSON(writer, urlDataManager);
+    writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_X, fXPos);
+    writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_Y, fYPos);
+    SkRect bounds = fBlob->bounds();
+    writer.appendName(DEBUGCANVAS_ATTRIBUTE_BOUNDS);
+    MakeJsonRect(writer, bounds);
+    writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
+    MakeJsonPaint(writer, fPaint, urlDataManager);
+
     writer.beginArray(DEBUGCANVAS_ATTRIBUTE_RUNS);
     SkTextBlobRunIterator iter(fBlob.get());
     while (!iter.done()) {
         writer.beginObject();  // run
+        if (iter.textSize()) {
+            writer.appendString(DEBUGCANVAS_ATTRIBUTE_TEXT, iter.text(), iter.textSize());
+        }
+        writer.appendName(DEBUGCANVAS_ATTRIBUTE_FONT);
+        MakeJsonFont(iter.font(), writer, urlDataManager);
+        writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
+        MakeJsonPoint(writer, iter.offset());
         writer.beginArray(DEBUGCANVAS_ATTRIBUTE_GLYPHS);
         for (uint32_t i = 0; i < iter.glyphCount(); i++) {
             writer.appendU32(iter.glyphs()[i]);
@@ -1689,27 +1740,22 @@ void DrawTextBlobCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataMa
             }
             writer.endArray();  // positions
         }
-        writer.appendName(DEBUGCANVAS_ATTRIBUTE_FONT);
-        MakeJsonFont(iter.font(), writer, urlDataManager);
-        writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
-        MakeJsonPoint(writer, iter.offset());
-
+        if (iter.clusters()) {
+            writer.beginArray(DEBUGCANVAS_ATTRIBUTE_CLUSTERS);
+            for (uint32_t i = 0; i < iter.glyphCount(); i++) {
+                writer.appendU32(iter.clusters()[i]);
+            }
+            writer.endArray();  // clusters
+        }
         writer.endObject();  // run
         iter.next();
     }
     writer.endArray();  // runs
-    writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_X, fXPos);
-    writer.appendFloat(DEBUGCANVAS_ATTRIBUTE_Y, fYPos);
-    SkRect bounds = fBlob->bounds();
-    writer.appendName(DEBUGCANVAS_ATTRIBUTE_COORDS);
-    MakeJsonRect(writer, bounds);
-    writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
-    MakeJsonPaint(writer, fPaint, urlDataManager);
 
     SkString desc;
     // make the bounds local by applying the x,y
     bounds.offset(fXPos, fYPos);
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, bounds)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, bounds));
 }
 
 DrawPatchCommand::DrawPatchCommand(const SkPoint  cubics[12],
@@ -1778,7 +1824,7 @@ void DrawRectCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManage
     MakeJsonPaint(writer, fPaint, urlDataManager);
 
     SkString desc;
-    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, str_append(&desc, fRect)->c_str());
+    writer.appendString(DEBUGCANVAS_ATTRIBUTE_SHORTDESC, *str_append(&desc, fRect));
 }
 
 DrawRRectCommand::DrawRRectCommand(const SkRRect& rrect, const SkPaint& paint)
@@ -1870,7 +1916,7 @@ void DrawShadowCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataMana
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 DrawEdgeAAQuadCommand::DrawEdgeAAQuadCommand(const SkRect&         rect,
-                                             const SkPoint         clip[],
+                                             const SkPoint         clip[4],
                                              SkCanvas::QuadAAFlags aa,
                                              const SkColor4f&      color,
                                              SkBlendMode           mode)
@@ -1902,8 +1948,9 @@ DrawEdgeAAImageSetCommand::DrawEdgeAAImageSetCommand(const SkCanvas::ImageSetEnt
         , fSet(count)
         , fCount(count)
         , fSampling(sampling)
-        , fPaint(paint)
         , fConstraint(constraint) {
+    assign_if_not_null(fPaint, paint);
+
     int totalDstClipCount, totalMatrixCount;
     SkCanvasPriv::GetDstClipAndMatrixCounts(set, count, &totalDstClipCount, &totalMatrixCount);
 
@@ -1920,17 +1967,20 @@ void DrawEdgeAAImageSetCommand::execute(SkCanvas* canvas) const {
                                             fDstClips.get(),
                                             fPreViewMatrices.get(),
                                             fSampling,
-                                            fPaint.getMaybeNull(),
+                                            SkOptAddressOrNull(fPaint),
                                             fConstraint);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 DrawDrawableCommand::DrawDrawableCommand(SkDrawable* drawable, const SkMatrix* matrix)
-        : INHERITED(kDrawDrawable_OpType), fDrawable(SkRef(drawable)), fMatrix(matrix) {}
+        : INHERITED(kDrawDrawable_OpType)
+        , fDrawable(SkRef(drawable)) {
+    assign_if_not_null(fMatrix, matrix);
+}
 
 void DrawDrawableCommand::execute(SkCanvas* canvas) const {
-    canvas->drawDrawable(fDrawable.get(), fMatrix.getMaybeNull());
+    canvas->drawDrawable(fDrawable.get(), SkOptAddressOrNull(fMatrix));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1964,20 +2014,18 @@ DrawAtlasCommand::DrawAtlasCommand(const SkImage*  image,
         , fTex(tex, count)
         , fColors(colors, colors ? count : 0)
         , fBlendMode(bmode)
-        , fSampling(sampling)
-        , fCull(cull)
-        , fPaint(paint) {}
+        , fSampling(sampling) {
+    assign_if_not_null(fCull, cull);
+    assign_if_not_null(fPaint, paint);
+}
 
 void DrawAtlasCommand::execute(SkCanvas* canvas) const {
     canvas->drawAtlas(fImage.get(),
-                      fXform.begin(),
-                      fTex.begin(),
-                      fColors.isEmpty() ? nullptr : fColors.begin(),
-                      fXform.count(),
+                      fXform, fTex, fColors,
                       fBlendMode,
                       fSampling,
-                      fCull.getMaybeNull(),
-                      fPaint.getMaybeNull());
+                      SkOptAddressOrNull(fCull),
+                      SkOptAddressOrNull(fPaint));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1992,28 +2040,31 @@ void SaveCommand::execute(SkCanvas* canvas) const { canvas->save(); }
 
 SaveLayerCommand::SaveLayerCommand(const SkCanvas::SaveLayerRec& rec)
         : INHERITED(kSaveLayer_OpType)
-        , fBounds(rec.fBounds)
-        , fPaint(rec.fPaint)
         , fBackdrop(SkSafeRef(rec.fBackdrop))
         , fSaveLayerFlags(rec.fSaveLayerFlags)
-        , fBackdropScale(SkCanvasPriv::GetBackdropScaleFactor(rec)) {}
+        , fBackdropScale(SkCanvasPriv::GetBackdropScaleFactor(rec))
+        , fBackdropTileMode(rec.fBackdropTileMode) {
+    assign_if_not_null(fBounds, rec.fBounds);
+    assign_if_not_null(fPaint, rec.fPaint);
+}
 
 void SaveLayerCommand::execute(SkCanvas* canvas) const {
     // In the common case fBackdropScale == 1.f and then this is no different than a regular Rec
-    canvas->saveLayer(SkCanvasPriv::ScaledBackdropLayer(fBounds.getMaybeNull(),
-                                                        fPaint.getMaybeNull(),
+    canvas->saveLayer(SkCanvasPriv::ScaledBackdropLayer(SkOptAddressOrNull(fBounds),
+                                                        SkOptAddressOrNull(fPaint),
                                                         fBackdrop.get(),
                                                         fBackdropScale,
+                                                        fBackdropTileMode,
                                                         fSaveLayerFlags));
 }
 
 void SaveLayerCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager) const {
     INHERITED::toJSON(writer, urlDataManager);
-    if (fBounds.isValid()) {
+    if (fBounds.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_BOUNDS);
         MakeJsonRect(writer, *fBounds);
     }
-    if (fPaint.isValid()) {
+    if (fPaint.has_value()) {
         writer.appendName(DEBUGCANVAS_ATTRIBUTE_PAINT);
         MakeJsonPaint(writer, *fPaint, urlDataManager);
     }

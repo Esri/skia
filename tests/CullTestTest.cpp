@@ -5,12 +5,17 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkTypes.h"
+#include "src/base/SkRandom.h"
+#include "src/gpu/tessellate/CullTest.h"
 #include "tests/Test.h"
 
-#include "include/utils/SkRandom.h"
-#include "src/gpu/tessellate/CullTest.h"
+#include <initializer_list>
 
-namespace skgpu {
+namespace skgpu::tess {
 
 const SkMatrix gMatrices[] = {
     SkMatrix::I(),
@@ -49,15 +54,14 @@ DEF_TEST(CullTestTest, reporter) {
                                        {x[(mask >> 12) & 3], y[(mask >> 14) & 3]}};
 
             SkPoint localPts[4];
-            inverse.mapPoints(localPts, devPts, 4);
+            inverse.mapPoints(localPts, devPts);
 
             REPORTER_ASSERT(reporter,
                             cullTest.isVisible(localPts[0]) ==
                             viewportRect.contains(devPts[0].fX, devPts[0].fY));
 
             {
-                SkRect devBounds3;
-                devBounds3.setBounds(devPts, 3);
+                SkRect devBounds3 = SkRect::BoundsOrEmpty({devPts, 3});
                 // Outset devBounds because SkRect::intersects returns false on empty, which is NOT
                 // the behavior we want.
                 devBounds3.outset(1e-3f, 1e-3f);
@@ -66,8 +70,7 @@ DEF_TEST(CullTestTest, reporter) {
             }
 
             {
-                SkRect devBounds4;
-                devBounds4.setBounds(devPts, 4);
+                SkRect devBounds4 = SkRect::BoundsOrEmpty({devPts, 4});
                 // Outset devBounds because SkRect::intersects returns false on empty, which is NOT
                 // the behavior we want.
                 devBounds4.outset(1e-3f, 1e-3f);
@@ -78,4 +81,4 @@ DEF_TEST(CullTestTest, reporter) {
     }
 }
 
-}  // namespace skgpu
+}  // namespace skgpu::tess

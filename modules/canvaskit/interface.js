@@ -62,15 +62,17 @@ CanvasKit.onRuntimeInitialized = function() {
     var pointsPtr = copy1dArray(pts, 'HEAPF32');
     var weightsPtr = copy1dArray(weights, 'HEAPF32');
     var numWeights = (weights && weights.length) || 0;
+    // CanvasKit will own the path memory we allocated. Divide points by 2
+    // because there's two floats per point.
     var path = CanvasKit.Path._MakeFromVerbsPointsWeights(
-        verbsPtr, verbs.length, pointsPtr, pts.length, weightsPtr, numWeights);
+        verbsPtr, verbs.length, pointsPtr, pts.length / 2, weightsPtr, numWeights);
     freeArraysThatAreNotMallocedByUsers(verbsPtr, verbs);
     freeArraysThatAreNotMallocedByUsers(pointsPtr, pts);
     freeArraysThatAreNotMallocedByUsers(weightsPtr, weights);
     return path;
   };
 
-  CanvasKit.Path.prototype.addArc = function(oval, startAngle, sweepAngle) {
+  CanvasKit["PathBuilder"].prototype["addArc"] = function(oval, startAngle, sweepAngle) {
     // see arc() for the HTMLCanvas version
     // note input angles are degrees.
     var oPtr = copyRectToWasm(oval);
@@ -78,7 +80,12 @@ CanvasKit.onRuntimeInitialized = function() {
     return this;
   };
 
-  CanvasKit.Path.prototype.addOval = function(oval, isCCW, startIndex) {
+  CanvasKit["PathBuilder"].prototype["addCircle"] = function(x, y, r, isCCW) {
+    this._addCircle(x, y, r, !!isCCW);
+    return this;
+  };
+
+  CanvasKit["PathBuilder"].prototype["addOval"] = function(oval, isCCW, startIndex) {
     if (startIndex === undefined) {
       startIndex = 1;
     }
@@ -88,7 +95,7 @@ CanvasKit.onRuntimeInitialized = function() {
   };
 
   // TODO(kjlubick) clean up this API - split it apart if necessary
-  CanvasKit.Path.prototype.addPath = function() {
+  CanvasKit["PathBuilder"].prototype["addPath"] = function() {
     // Takes 1, 2, 7, or 10 required args, where the first arg is always the path.
     // The last arg is optional and chooses between add or extend mode.
     // The options for the remaining args are:
@@ -133,45 +140,50 @@ CanvasKit.onRuntimeInitialized = function() {
   // points is a 1d array of length 2n representing n points where the even indices
   // will be treated as x coordinates and the odd indices will be treated as y coordinates.
   // Like other APIs, this accepts a malloced type array or malloc obj.
-  CanvasKit.Path.prototype.addPoly = function(points, close) {
+  CanvasKit["PathBuilder"].prototype["addPolygon"] = function(points, close) {
     var ptr = copy1dArray(points, 'HEAPF32');
-    this._addPoly(ptr, points.length / 2, close);
+    this._addPolygon(ptr, points.length / 2, close);
+    // PathBuilder makes a copy of all these points
     freeArraysThatAreNotMallocedByUsers(ptr, points);
     return this;
   };
 
-  CanvasKit.Path.prototype.addRect = function(rect, isCCW) {
+  CanvasKit["PathBuilder"].prototype["addRect"] = function(rect, isCCW) {
     var rPtr = copyRectToWasm(rect);
     this._addRect(rPtr, !!isCCW);
     return this;
   };
 
-  CanvasKit.Path.prototype.addRRect = function(rrect, isCCW) {
+  CanvasKit["PathBuilder"].prototype["addRRect"] = function(rrect, isCCW) {
     var rPtr = copyRRectToWasm(rrect);
     this._addRRect(rPtr, !!isCCW);
     return this;
   };
 
   // The weights array is optional (only used for conics).
-  CanvasKit.Path.prototype.addVerbsPointsWeights = function(verbs, points, weights) {
+  CanvasKit["PathBuilder"].prototype["addVerbsPointsWeights"] = function(verbs, points, weights) {
     var verbsPtr = copy1dArray(verbs, 'HEAPU8');
     var pointsPtr = copy1dArray(points, 'HEAPF32');
     var weightsPtr = copy1dArray(weights, 'HEAPF32');
     var numWeights = (weights && weights.length) || 0;
-    this._addVerbsPointsWeights(verbsPtr, verbs.length, pointsPtr, points.length,
+    // CanvasKit will own the path memory we allocated. Divide
+    // number of points by 2 becuase there are two floats per point.
+    this._addVerbsPointsWeights(verbsPtr, verbs.length, pointsPtr, points.length/2,
                                 weightsPtr, numWeights);
     freeArraysThatAreNotMallocedByUsers(verbsPtr, verbs);
     freeArraysThatAreNotMallocedByUsers(pointsPtr, points);
     freeArraysThatAreNotMallocedByUsers(weightsPtr, weights);
+    return this;
   };
 
-  CanvasKit.Path.prototype.arc = function(x, y, radius, startAngle, endAngle, ccw) {
+  CanvasKit["PathBuilder"].prototype["arc"] = function(x, y, radius, startAngle, endAngle, ccw) {
     // emulates the HTMLCanvas behavior.  See addArc() for the Path version.
     // Note input angles are radians.
     var bounds = CanvasKit.LTRBRect(x-radius, y-radius, x+radius, y+radius);
     var sweep = radiansToDegrees(endAngle - startAngle) - (360 * !!ccw);
-    var temp = new CanvasKit.Path();
-    temp.addArc(bounds, radiansToDegrees(startAngle), sweep);
+    var temp = new CanvasKit.PathBuilder()
+        .addArc(bounds, radiansToDegrees(startAngle), sweep)
+        .detachAndDelete();
     this.addPath(temp, true);
     temp.delete();
     return this;
@@ -181,7 +193,7 @@ CanvasKit.onRuntimeInitialized = function() {
   // bounded by oval, from startAngle through sweepAngle. Both startAngle and
   // sweepAngle are measured in degrees, where zero degrees is aligned with the
   // positive x-axis, and positive sweeps extends arc clockwise.
-  CanvasKit.Path.prototype.arcToOval = function(oval, startAngle, sweepAngle, forceMoveTo) {
+  CanvasKit["PathBuilder"].prototype["arcToOval"] = function(oval, startAngle, sweepAngle, forceMoveTo) {
     var oPtr = copyRectToWasm(oval);
     this._arcToOval(oPtr, startAngle, sweepAngle, forceMoveTo);
     return this;
@@ -201,7 +213,7 @@ CanvasKit.onRuntimeInitialized = function() {
   // arcToRotated() implements the functionality of SVG arc, although SVG sweep-flag value
   // is opposite the integer value of sweep; SVG sweep-flag uses 1 for clockwise,
   // while kCW_Direction cast to int is zero.
-  CanvasKit.Path.prototype.arcToRotated = function(rx, ry, xAxisRotate, useSmallArc, isCCW, x, y) {
+  CanvasKit["PathBuilder"].prototype["arcToRotated"] = function(rx, ry, xAxisRotate, useSmallArc, isCCW, x, y) {
     this._arcToRotated(rx, ry, xAxisRotate, !!useSmallArc, !!isCCW, x, y);
     return this;
   };
@@ -219,17 +231,17 @@ CanvasKit.onRuntimeInitialized = function() {
 
   // arcToTangent appends at most one Line and one conic.
   // arcToTangent implements the functionality of PostScript arct and HTML Canvas arcTo.
-  CanvasKit.Path.prototype.arcToTangent = function(x1, y1, x2, y2, radius) {
+  CanvasKit["PathBuilder"].prototype["arcToTangent"] = function(x1, y1, x2, y2, radius) {
     this._arcToTangent(x1, y1, x2, y2, radius);
     return this;
   };
 
-  CanvasKit.Path.prototype.close = function() {
+  CanvasKit["PathBuilder"].prototype["close"] = function() {
     this._close();
     return this;
   };
 
-  CanvasKit.Path.prototype.conicTo = function(x1, y1, x2, y2, w) {
+  CanvasKit["PathBuilder"].prototype["conicTo"] = function(x1, y1, x2, y2, w) {
     this._conicTo(x1, y1, x2, y2, w);
     return this;
   };
@@ -247,16 +259,15 @@ CanvasKit.onRuntimeInitialized = function() {
     return ta.slice();
   };
 
-  CanvasKit.Path.prototype.cubicTo = function(cp1x, cp1y, cp2x, cp2y, x, y) {
+  CanvasKit["PathBuilder"].prototype["cubicTo"] = function(cp1x, cp1y, cp2x, cp2y, x, y) {
     this._cubicTo(cp1x, cp1y, cp2x, cp2y, x, y);
     return this;
   };
 
-  CanvasKit.Path.prototype.dash = function(on, off, phase) {
-    if (this._dash(on, off, phase)) {
-      return this;
-    }
-    return null;
+  CanvasKit["PathBuilder"].prototype["detachAndDelete"] = function() {
+    var newPath = this.detach();
+    this.delete();
+    return newPath;
   };
 
   // Clients can pass in a Float32Array with length 4 to this and the results
@@ -272,61 +283,71 @@ CanvasKit.onRuntimeInitialized = function() {
     return ta.slice();
   };
 
-  CanvasKit.Path.prototype.lineTo = function(x, y) {
+  CanvasKit["PathBuilder"].prototype.getBounds = function(optionalOutputArray) {
+    this._getBounds(_scratchFourFloatsAPtr);
+    var ta = _scratchFourFloatsA['toTypedArray']();
+    if (optionalOutputArray) {
+      optionalOutputArray.set(ta);
+      return optionalOutputArray;
+    }
+    return ta.slice();
+  };
+
+  CanvasKit["PathBuilder"].prototype["lineTo"] = function(x, y) {
     this._lineTo(x, y);
     return this;
   };
 
-  CanvasKit.Path.prototype.moveTo = function(x, y) {
+  CanvasKit["PathBuilder"].prototype["moveTo"] = function(x, y) {
     this._moveTo(x, y);
     return this;
   };
 
-  CanvasKit.Path.prototype.offset = function(dx, dy) {
+  CanvasKit["PathBuilder"].prototype["offset"] = function(dx, dy) {
     this._transform(1, 0, dx,
                     0, 1, dy,
                     0, 0, 1);
     return this;
   };
 
-  CanvasKit.Path.prototype.quadTo = function(cpx, cpy, x, y) {
+  CanvasKit["PathBuilder"].prototype["quadTo"] = function(cpx, cpy, x, y) {
     this._quadTo(cpx, cpy, x, y);
     return this;
   };
 
- CanvasKit.Path.prototype.rArcTo = function(rx, ry, xAxisRotate, useSmallArc, isCCW, dx, dy) {
+ CanvasKit["PathBuilder"].prototype["rArcTo"] = function(rx, ry, xAxisRotate, useSmallArc, isCCW, dx, dy) {
     this._rArcTo(rx, ry, xAxisRotate, useSmallArc, isCCW, dx, dy);
     return this;
   };
 
-  CanvasKit.Path.prototype.rConicTo = function(dx1, dy1, dx2, dy2, w) {
+  CanvasKit["PathBuilder"].prototype["rConicTo"] = function(dx1, dy1, dx2, dy2, w) {
     this._rConicTo(dx1, dy1, dx2, dy2, w);
     return this;
   };
 
   // These params are all relative
-  CanvasKit.Path.prototype.rCubicTo = function(cp1x, cp1y, cp2x, cp2y, x, y) {
+  CanvasKit["PathBuilder"].prototype["rCubicTo"] = function(cp1x, cp1y, cp2x, cp2y, x, y) {
     this._rCubicTo(cp1x, cp1y, cp2x, cp2y, x, y);
     return this;
   };
 
-  CanvasKit.Path.prototype.rLineTo = function(dx, dy) {
+  CanvasKit["PathBuilder"].prototype["rLineTo"] = function(dx, dy) {
     this._rLineTo(dx, dy);
     return this;
   };
 
-  CanvasKit.Path.prototype.rMoveTo = function(dx, dy) {
+  CanvasKit["PathBuilder"].prototype["rMoveTo"] = function(dx, dy) {
     this._rMoveTo(dx, dy);
     return this;
   };
 
   // These params are all relative
-  CanvasKit.Path.prototype.rQuadTo = function(cpx, cpy, x, y) {
+  CanvasKit["PathBuilder"].prototype["rQuadTo"] = function(cpx, cpy, x, y) {
     this._rQuadTo(cpx, cpy, x, y);
     return this;
   };
 
-  CanvasKit.Path.prototype.stroke = function(opts) {
+  CanvasKit.Path.prototype.makeStroked = function(opts) {
     // Fill out any missing values with the default values.
     opts = opts || {};
     opts['width'] = opts['width'] || 1;
@@ -334,14 +355,11 @@ CanvasKit.onRuntimeInitialized = function() {
     opts['cap'] = opts['cap'] || CanvasKit.StrokeCap.Butt;
     opts['join'] = opts['join'] || CanvasKit.StrokeJoin.Miter;
     opts['precision'] = opts['precision'] || 1;
-    if (this._stroke(opts)) {
-      return this;
-    }
-    return null;
+    return this._makeStroked(opts);
   };
 
   // TODO(kjlubick) Change this to take a 3x3 or 4x4 matrix (optionally malloc'd)
-  CanvasKit.Path.prototype.transform = function() {
+  CanvasKit["PathBuilder"].prototype["transform"] = function() {
     // Takes 1 or 9 args
     if (arguments.length === 1) {
       // argument 1 should be a 6 or 9 element array.
@@ -360,12 +378,21 @@ CanvasKit.onRuntimeInitialized = function() {
     }
     return this;
   };
+
   // isComplement is optional, defaults to false
-  CanvasKit.Path.prototype.trim = function(startT, stopT, isComplement) {
-    if (this._trim(startT, stopT, !!isComplement)) {
-      return this;
+  CanvasKit.Path.prototype.makeTrimmed = function(startT, stopT, isComplement) {
+    return this._makeTrimmed(startT, stopT, !!isComplement);
+  };
+
+  CanvasKit.Image.prototype.encodeToBytes = function(fmt, quality) {
+    var grCtx = CanvasKit.getCurrentGrDirectContext();
+    fmt = fmt || CanvasKit.ImageFormat.PNG;
+    quality = quality || 100;
+    if (grCtx) {
+      return this._encodeToBytes(fmt, quality, grCtx);
+    } else {
+      return this._encodeToBytes(fmt, quality);
     }
-    return null;
   };
 
   // makeShaderCubic returns a shader for a given image, allowing it to be used on
@@ -390,7 +417,7 @@ CanvasKit.onRuntimeInitialized = function() {
     return this._makeShaderOptions(xTileMode, yTileMode, filterMode, mipmapMode, localMatrixPtr);
   };
 
-  function readPixels(source, srcX, srcY, imageInfo, destMallocObj, bytesPerRow) {
+  function readPixels(source, srcX, srcY, imageInfo, destMallocObj, bytesPerRow, grCtx) {
     if (!bytesPerRow) {
       bytesPerRow = 4 * imageInfo['width'];
       if (imageInfo['colorType'] === CanvasKit.ColorType.RGBA_F16) {
@@ -408,7 +435,13 @@ CanvasKit.onRuntimeInitialized = function() {
       pPtr = CanvasKit._malloc(pBytes);
     }
 
-    if (!source._readPixels(imageInfo, pPtr, bytesPerRow, srcX, srcY)) {
+    var rv;
+    if (grCtx) {
+      rv = source._readPixels(imageInfo, pPtr, bytesPerRow, srcX, srcY, grCtx);
+    } else {
+      rv = source._readPixels(imageInfo, pPtr, bytesPerRow, srcX, srcY);
+    }
+    if (!rv) {
       Debug('Could not read pixels with the given inputs');
       if (!destMallocObj) {
         CanvasKit._free(pPtr);
@@ -444,7 +477,8 @@ CanvasKit.onRuntimeInitialized = function() {
 
   CanvasKit.Image.prototype.readPixels = function(srcX, srcY, imageInfo, destMallocObj,
                                                   bytesPerRow) {
-    return readPixels(this, srcX, srcY, imageInfo, destMallocObj, bytesPerRow);
+    var grCtx = CanvasKit.getCurrentGrDirectContext();
+    return readPixels(this, srcX, srcY, imageInfo, destMallocObj, bytesPerRow, grCtx);
   };
 
   // Accepts an array of four numbers in the range of 0-1 representing a 4f color
@@ -575,20 +609,6 @@ CanvasKit.onRuntimeInitialized = function() {
     var oPtr = copyRRectToWasm(outer, _scratchRRectPtr);
     var iPtr = copyRRectToWasm(inner, _scratchRRect2Ptr);
     this._drawDRRect(oPtr, iPtr, paint);
-  };
-
-  CanvasKit.Canvas.prototype.drawGlyphs = function(glyphs, positions, x, y, font, paint) {
-    if (!(glyphs.length*2 <= positions.length)) {
-        throw 'Not enough positions for the array of gyphs';
-    }
-    CanvasKit.setCurrentContext(this._context);
-    const glyphs_ptr    = copy1dArray(glyphs, 'HEAPU16');
-    const positions_ptr = copy1dArray(positions, 'HEAPF32');
-
-    this._drawGlyphs(glyphs.length, glyphs_ptr, positions_ptr, x, y, font, paint);
-
-    freeArraysThatAreNotMallocedByUsers(positions_ptr, positions);
-    freeArraysThatAreNotMallocedByUsers(glyphs_ptr,    glyphs);
   };
 
   CanvasKit.Canvas.prototype.drawImage = function(img, x, y, paint) {
@@ -762,6 +782,18 @@ CanvasKit.onRuntimeInitialized = function() {
     this._drawVertices(verts, mode, paint);
   }
 
+  // getDeviceClipBounds returns an SkIRect
+  CanvasKit.Canvas.prototype.getDeviceClipBounds = function(outputRect) {
+    // _getDeviceClipBounds will copy the values into the pointer.
+    this._getDeviceClipBounds(_scratchIRectPtr);
+    return copyIRectFromWasm(_scratchIRect, outputRect);
+  };
+
+  CanvasKit.Canvas.prototype.quickReject = function(rect) {
+    var rPtr = copyRectToWasm(rect);
+    return this._quickReject(rPtr);
+  };
+
   // getLocalToDevice returns a 4x4 matrix.
   CanvasKit.Canvas.prototype.getLocalToDevice = function() {
     // _getLocalToDevice will copy the values into the pointer.
@@ -794,11 +826,11 @@ CanvasKit.onRuntimeInitialized = function() {
     return readPixels(this, srcX, srcY, imageInfo, destMallocObj, bytesPerRow);
   };
 
-  CanvasKit.Canvas.prototype.saveLayer = function(paint, boundsRect, backdrop, flags) {
+  CanvasKit.Canvas.prototype.saveLayer = function (paint, boundsRect, backdrop, flags, backdropTileMode) {
     // bPtr will be 0 (nullptr) if boundsRect is undefined/null.
     var bPtr = copyRectToWasm(boundsRect);
     // These or clauses help emscripten, which does not deal with undefined well.
-    return this._saveLayer(paint || null, bPtr, backdrop || null, flags || 0);
+    return this._saveLayer(paint || null, bPtr, backdrop || null, flags || 0, backdropTileMode || CanvasKit.TileMode.Clamp);
   };
 
   // pixels should be a Uint8Array or a plain JS array.
@@ -828,9 +860,10 @@ CanvasKit.onRuntimeInitialized = function() {
     return ok;
   };
 
-  CanvasKit.ColorFilter.MakeBlend = function(color4f, mode) {
+  CanvasKit.ColorFilter.MakeBlend = function(color4f, mode, colorSpace) {
     var cPtr = copyColorToWasm(color4f);
-    return CanvasKit.ColorFilter._MakeBlend(cPtr, mode);
+    colorSpace = colorSpace || CanvasKit.ColorSpace.SRGB;
+    return CanvasKit.ColorFilter._MakeBlend(cPtr, mode, colorSpace);
   };
 
   // colorMatrix is an ColorMatrix (e.g. Float32Array of length 20)
@@ -855,12 +888,50 @@ CanvasKit.onRuntimeInitialized = function() {
     return ta.slice();
   };
 
+  CanvasKit.ImageFilter.prototype.getOutputBounds = function (drawBounds, ctm, optionalOutputArray) {
+    var bPtr = copyRectToWasm(drawBounds, _scratchFourFloatsAPtr);
+    var mPtr = copy3x3MatrixToWasm(ctm);
+    this._getOutputBounds(bPtr, mPtr, _scratchIRectPtr);
+    var ta = _scratchIRect['toTypedArray']();
+    if (optionalOutputArray) {
+      optionalOutputArray.set(ta);
+      return optionalOutputArray;
+    }
+    return ta.slice();
+  };
+
+  CanvasKit.ImageFilter.MakeDropShadow = function(dx, dy, sx, sy, color, input) {
+    var cPtr = copyColorToWasm(color, _scratchColorPtr);
+    return CanvasKit.ImageFilter._MakeDropShadow(dx, dy, sx, sy, cPtr, input);
+  };
+
+  CanvasKit.ImageFilter.MakeDropShadowOnly = function(dx, dy, sx, sy, color, input) {
+    var cPtr = copyColorToWasm(color, _scratchColorPtr);
+    return CanvasKit.ImageFilter._MakeDropShadowOnly(dx, dy, sx, sy, cPtr, input);
+  };
+
+  CanvasKit.ImageFilter.MakeImage = function(img, sampling, srcRect, dstRect) {
+    var srcPtr = copyRectToWasm(srcRect, _scratchFourFloatsAPtr);
+    var dstPtr = copyRectToWasm(dstRect, _scratchFourFloatsBPtr);
+
+    if ('B' in sampling && 'C' in sampling) {
+        return CanvasKit.ImageFilter._MakeImageCubic(img, sampling['B'], sampling['C'], srcPtr, dstPtr);
+    } else {
+        const filter = sampling['filter'];  // 'filter' is a required field
+        let mipmap = CanvasKit.MipmapMode.None;
+        if ('mipmap' in sampling) {         // 'mipmap' is optional
+            mipmap = sampling['mipmap'];
+        }
+        return CanvasKit.ImageFilter._MakeImageOptions(img, filter, mipmap, srcPtr, dstPtr);
+    }
+  };
+
   CanvasKit.ImageFilter.MakeMatrixTransform = function(matrix, sampling, input) {
     var matrPtr = copy3x3MatrixToWasm(matrix);
 
     if ('B' in sampling && 'C' in sampling) {
         return CanvasKit.ImageFilter._MakeMatrixTransformCubic(matrPtr,
-                                                               sampling.B, sampling.C,
+                                                               sampling['B'], sampling['C'],
                                                                input);
     } else {
         const filter = sampling['filter'];  // 'filter' is a required field
@@ -911,9 +982,32 @@ CanvasKit.onRuntimeInitialized = function() {
     return ta.slice(0, 2);
   };
 
-  CanvasKit.PictureRecorder.prototype.beginRecording = function(bounds) {
+  CanvasKit.Picture.prototype.makeShader = function(tmx, tmy, mode, matr, rect) {
+    var mPtr = copy3x3MatrixToWasm(matr);
+    var rPtr = copyRectToWasm(rect);
+    return this._makeShader(tmx, tmy, mode, mPtr, rPtr);
+  };
+
+  // Clients can pass in a Float32Array with length 4 to this and the results
+  // will be copied into that array. Otherwise, a new TypedArray will be allocated
+  // and returned.
+  CanvasKit.Picture.prototype.cullRect = function (optionalOutputArray) {
+    this._cullRect(_scratchFourFloatsAPtr);
+    var ta = _scratchFourFloatsA['toTypedArray']();
+    if (optionalOutputArray) {
+      optionalOutputArray.set(ta);
+      return optionalOutputArray;
+    }
+    return ta.slice();
+  };
+
+  // `bounds` is a required argument and is the initial cullRect for the picture.
+  // `computeBounds` is an optional boolean argument (default false) which, if
+  // true, will cause the recorded picture to compute a more accurate cullRect
+  // when it is created.
+  CanvasKit.PictureRecorder.prototype.beginRecording = function (bounds, computeBounds) {
     var bPtr = copyRectToWasm(bounds);
-    return this._beginRecording(bPtr);
+    return this._beginRecording(bPtr, !!computeBounds);
   };
 
   CanvasKit.Surface.prototype.getCanvas = function() {
@@ -935,11 +1029,11 @@ CanvasKit.onRuntimeInitialized = function() {
     return s;
   };
 
-  CanvasKit.Surface.prototype.requestAnimationFrame = function(callback, dirtyRect) {
+  CanvasKit.Surface.prototype._requestAnimationFrameInternal = function(callback, dirtyRect) {
     if (!this._cached_canvas) {
       this._cached_canvas = this.getCanvas();
     }
-    requestAnimationFrame(function() {
+    return requestAnimationFrame(function() {
       CanvasKit.setCurrentContext(this._context);
 
       callback(this._cached_canvas);
@@ -950,10 +1044,14 @@ CanvasKit.onRuntimeInitialized = function() {
       this.flush(dirtyRect);
     }.bind(this));
   };
+  if (!CanvasKit.Surface.prototype.requestAnimationFrame) {
+    CanvasKit.Surface.prototype.requestAnimationFrame =
+          CanvasKit.Surface.prototype._requestAnimationFrameInternal;
+  }
 
   // drawOnce will dispose of the surface after drawing the frame using the provided
   // callback.
-  CanvasKit.Surface.prototype.drawOnce = function(callback, dirtyRect) {
+  CanvasKit.Surface.prototype._drawOnceInternal = function(callback, dirtyRect) {
     if (!this._cached_canvas) {
       this._cached_canvas = this.getCanvas();
     }
@@ -965,6 +1063,9 @@ CanvasKit.onRuntimeInitialized = function() {
       this.dispose();
     }.bind(this));
   };
+  if (!CanvasKit.Surface.prototype.drawOnce) {
+    CanvasKit.Surface.prototype.drawOnce = CanvasKit.Surface.prototype._drawOnceInternal;
+  }
 
   CanvasKit.PathEffect.MakeDash = function(intervals, phase) {
     if (!phase) {
@@ -977,6 +1078,16 @@ CanvasKit.onRuntimeInitialized = function() {
     var dpe = CanvasKit.PathEffect._MakeDash(ptr, intervals.length, phase);
     freeArraysThatAreNotMallocedByUsers(ptr, intervals);
     return dpe;
+  };
+
+  CanvasKit.PathEffect.MakeLine2D = function(width, matrix) {
+    var matrixPtr = copy3x3MatrixToWasm(matrix);
+    return CanvasKit.PathEffect._MakeLine2D(width, matrixPtr);
+  };
+
+  CanvasKit.PathEffect.MakePath2D = function(matrix, path) {
+    var matrixPtr = copy3x3MatrixToWasm(matrix);
+    return CanvasKit.PathEffect._MakePath2D(matrixPtr, path);
   };
 
   CanvasKit.Shader.MakeColor = function(color4f, colorSpace) {
@@ -1185,7 +1296,7 @@ CanvasKit.MakeImageFromCanvasImageSource = function(canvasImageSource) {
   memoizedCanvas2dElement.width = width;
   memoizedCanvas2dElement.height = height;
 
-  var ctx2d = memoizedCanvas2dElement.getContext('2d');
+  var ctx2d = memoizedCanvas2dElement.getContext('2d', {willReadFrequently: true});
   ctx2d.drawImage(canvasImageSource, 0, 0);
 
   var imageData = ctx2d.getImageData(0, 0, width, height);

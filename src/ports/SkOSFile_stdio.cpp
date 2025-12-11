@@ -12,15 +12,11 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-#ifdef SK_BUILD_FOR_UNIX
-#include <unistd.h>
-#endif
-
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
 #include <vector>
-#include "src/utils/SkUTF.h"
+#include "src/base/SkUTF.h"
 #endif
 
 #ifdef SK_BUILD_FOR_IOS
@@ -128,14 +124,6 @@ void sk_fflush(FILE* f) {
     fflush(f);
 }
 
-void sk_fsync(FILE* f) {
-#if !defined(_WIN32) && !defined(SK_BUILD_FOR_ANDROID) && !defined(__UCLIBC__) \
-        && !defined(_NEWLIB_VERSION)
-    int fd = fileno(f);
-    fsync(fd);
-#endif
-}
-
 size_t sk_ftell(FILE* f) {
     long curr = ftell(f);
     if (curr < 0) {
@@ -151,21 +139,21 @@ void sk_fclose(FILE* f) {
 }
 
 bool sk_isdir(const char *path) {
-    struct stat status;
-    if (0 != stat(path, &status)) {
-#ifdef SK_BUILD_FOR_IOS
-        // check the bundle directory if not in default path
-        SkString bundlePath;
-        if (ios_get_path_in_bundle(path, &bundlePath)) {
-            if (0 != stat(bundlePath.c_str(), &status)) {
-                return false;
-            }
-        }
-#else
-        return false;
-#endif
+    struct stat status = {};
+    if (stat(path, &status) == 0) {
+        return SkToBool(status.st_mode & S_IFDIR);
     }
-    return SkToBool(status.st_mode & S_IFDIR);
+#ifdef SK_BUILD_FOR_IOS
+    // check the bundle directory if not in default path
+    SkString bundlePath;
+    if (!ios_get_path_in_bundle(path, &bundlePath)) {
+        return false;
+    }
+    if (stat(bundlePath.c_str(), &status) == 0) {
+        return SkToBool(status.st_mode & S_IFDIR);
+    }
+#endif
+    return false;
 }
 
 bool sk_mkdir(const char* path) {

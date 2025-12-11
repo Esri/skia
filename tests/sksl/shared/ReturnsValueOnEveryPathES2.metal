@@ -1,5 +1,8 @@
 #include <metal_stdlib>
 #include <simd/simd.h>
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wall"
+#endif
 using namespace metal;
 struct Uniforms {
     half4 colorGreen;
@@ -21,7 +24,6 @@ bool for_inside_body_b() {
 }
 bool after_for_body_b() {
     for (int x = 0;x <= 10; ++x) {
-        true;
     }
     return true;
 }

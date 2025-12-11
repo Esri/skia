@@ -12,13 +12,19 @@
 #include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkSurface.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/private/SkTArray.h"
+#include "include/docs/SkMultiPictureDocument.h"
+#include "include/private/base/SkTArray.h"
 #include "include/utils/SkNoDrawCanvas.h"
+#include "src/base/SkTLazy.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/core/SkTLazy.h"
-#include "src/utils/SkMultiPictureDocument.h"
+#include "src/core/SkStringUtils.h"
 #include "tools/SkSharingProc.h"
+
+#if defined(SK_GANESH)
+#include "include/gpu/ganesh/GrDirectContext.h"
+#endif
+
+using namespace skia_private;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -65,7 +71,7 @@ struct MSKPPlayer::DrawLayerCmd : Cmd {
     SkRect                      fDstRect;
     SkSamplingOptions           fSampling;
     SkCanvas::SrcRectConstraint fConstraint;
-    SkTLazy<SkPaint>            fPaint;
+    std::optional<SkPaint>      fPaint;
 
     bool isFullRedraw(SkCanvas* canvas) const override { return false; }
     void draw(SkCanvas* canvas, const LayerMap&, LayerStateMap*) const override;
@@ -106,7 +112,7 @@ void MSKPPlayer::DrawLayerCmd::draw(SkCanvas* canvas,
         layer.fCmds[cmd]->draw(layerCanvas, layerMap, layerStateMap);
     }
     layerState->fCurrCmd = fLayerCmdCnt;
-    const SkPaint* paint = fPaint.isValid() ? fPaint.get() : nullptr;
+    const SkPaint* paint = SkOptAddressOrNull(fPaint);
     canvas->drawImageRect(layerState->fSurface->makeImageSnapshot(),
                           fSrcRect,
                           fDstRect,
@@ -188,7 +194,7 @@ protected:
                       size_t count,
                       const SkPoint pts[],
                       const SkPaint& paint) override {
-        fRecorder.getRecordingCanvas()->drawPoints(mode, count, pts, paint);
+        fRecorder.getRecordingCanvas()->drawPoints(mode, {pts, count}, paint);
     }
 
     void onDrawImage2(const SkImage* image,
@@ -215,7 +221,7 @@ protected:
             drawLayer->fSampling = sampling;
             drawLayer->fConstraint = constraint;
             if (paint) {
-                drawLayer->fPaint.init(*paint);
+                drawLayer->fPaint.emplace(*paint);
             }
             fDst->fCmds.push_back(std::move(drawLayer));
             fNextDrawImageFromLayerID = -1;
@@ -242,10 +248,9 @@ protected:
                       const SkRect* cull,
                       const SkPaint* paint) override {
         fRecorder.getRecordingCanvas()->drawAtlas(image,
-                                                  rsxForms,
-                                                  src,
-                                                  colors,
-                                                  count,
+                                                  {rsxForms, count},
+                                                  {src, count},
+                                                  {colors, colors ? count : 0},
                                                   mode,
                                                   sampling,
                                                   cull,
@@ -291,7 +296,7 @@ protected:
     void onDrawAnnotation(const SkRect& rect, const char key[], SkData* value) override {
         static constexpr char kOffscreenLayerDraw[] = "OffscreenLayerDraw";
         static constexpr char kSurfaceID[] = "SurfaceID";
-        SkTArray<SkString> tokens;
+        TArray<SkString> tokens;
         SkStrSplit(key, "|", kStrict_SkStrSplitMode, &tokens);
         if (tokens.size() == 2) {
             if (tokens[0].equals(kOffscreenLayerDraw)) {
@@ -355,7 +360,6 @@ protected:
         if (paint) {
             this->restore();
         }
-        fRecorder.getRecordingCanvas()->drawPicture(picture, matrix, paint);
     }
 
 private:
@@ -387,12 +391,12 @@ std::unique_ptr<MSKPPlayer> MSKPPlayer::Make(SkStreamSeekable* stream) {
     procs.fImageProc = SkSharingDeserialContext::deserializeImage;
     procs.fImageCtx = deserialContext.get();
 
-    int pageCount = SkMultiPictureDocumentReadPageCount(stream);
+    int pageCount = SkMultiPictureDocument::ReadPageCount(stream);
     if (!pageCount) {
         return nullptr;
     }
     std::vector<SkDocumentPage> pages(pageCount);
-    if (!SkMultiPictureDocumentRead(stream, pages.data(), pageCount, &procs)) {
+    if (!SkMultiPictureDocument::Read(stream, pages.data(), pageCount, &procs)) {
         return nullptr;
     }
     std::unique_ptr<MSKPPlayer> result(new MSKPPlayer);

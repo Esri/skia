@@ -5,9 +5,14 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
-#include "src/gpu/geometry/GrQuad.h"
-#include "src/gpu/geometry/GrQuadUtils.h"
+#include "include/core/SkTypes.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/gpu/ganesh/geometry/GrQuad.h"
+#include "src/gpu/ganesh/geometry/GrQuadUtils.h"
 #include "tests/Test.h"
 
 #define ASSERT(cond) REPORTER_ASSERT(r, cond)
@@ -53,8 +58,7 @@ static void run_crop_axis_aligned_test(skiatest::Reporter* r, const SkRect& clip
         SkMatrix toLocal = SkMatrix::Concat(*localMatrix, invViewMatrix);
 
         for (int p = 0; p < 4; ++p) {
-            SkPoint expectedPoint = quad.fDevice.point(p);
-            toLocal.mapPoints(&expectedPoint, 1);
+            SkPoint expectedPoint = toLocal.mapPoint(quad.fDevice.point(p));
             SkPoint actualPoint = quad.fLocal.point(p);
 
             ASSERT_NEARLY_EQUAL(expectedPoint.fX, actualPoint.fX);
@@ -207,7 +211,7 @@ static void test_axis_aligned_all_clips(skiatest::Reporter* r, const SkMatrix& v
 static void test_axis_aligned(skiatest::Reporter* r, const SkMatrix& viewMatrix) {
     test_axis_aligned_all_clips(r, viewMatrix, nullptr);
 
-    SkMatrix normalized = SkMatrix::RectToRect(kDrawRect, SkRect::MakeWH(1.f, 1.f));
+    SkMatrix normalized = SkMatrix::RectToRectOrIdentity(kDrawRect, SkRect::MakeWH(1.f, 1.f));
     test_axis_aligned_all_clips(r, viewMatrix, &normalized);
 
     SkMatrix rotated;
@@ -224,7 +228,7 @@ static void test_crop_fully_covered(skiatest::Reporter* r, const SkMatrix& viewM
     run_crop_fully_covered_test(r, GrAA::kNo, viewMatrix, nullptr);
     run_crop_fully_covered_test(r, GrAA::kYes, viewMatrix, nullptr);
 
-    SkMatrix normalized = SkMatrix::RectToRect(kDrawRect, SkRect::MakeWH(1.f, 1.f));
+    SkMatrix normalized = SkMatrix::RectToRectOrIdentity(kDrawRect, SkRect::MakeWH(1.f, 1.f));
     run_crop_fully_covered_test(r, GrAA::kNo, viewMatrix, &normalized);
     run_crop_fully_covered_test(r, GrAA::kYes, viewMatrix, &normalized);
 

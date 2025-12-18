@@ -535,7 +535,6 @@ local common_android = {
 
 local common_cocoa = {
   common_unix,
-  "src/ports/SkFontMgr_mac_ct_factory.cpp",
   "src/ports/SkFontMgr_mac_ct.cpp",
   "src/ports/SkScalerContext_mac_ct.cpp",
   "src/ports/SkTypeface_mac_ct.cpp",

@@ -18,6 +18,7 @@ includedirs {
   ".",
   "include/third_party/skcms",
 
+  _3RDPARTY_DIR .. "/fontconfig",
   _3RDPARTY_DIR .. "/libjpeg-turbo",
   _3RDPARTY_DIR .. "/libpng",
   _3RDPARTY_DIR .. "/wuffs/release/c",

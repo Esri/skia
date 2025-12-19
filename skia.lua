@@ -490,14 +490,10 @@ files {
 -- Add common Win and WinUWP
 
 local common_win = {
-  "src/core/SkSharedMutex.cpp",
-  "src/fonts/SkFontMgr_indirect.cpp",
   "src/ports/SkDebug_win.cpp",
   "src/ports/SkFontMgr_win_dw.cpp",
-  "src/ports/SkFontMgr_win_dw_factory.cpp",
   "src/ports/SkOSFile_win.cpp",
   "src/ports/SkScalerContext_win_dw.cpp",
-  "src/ports/SkTLS_win.cpp",
   "src/ports/SkTypeface_win_dw.cpp",
   "src/utils/win/SkDWrite.cpp",
   "src/utils/win/SkDWriteFontFileStream.cpp",
@@ -544,6 +540,11 @@ local common_cocoa = {
 -- Opts SSE
 
 local opts_sse = {
+  "src/core/SkBitmapProcState_opts_ssse3.cpp",
+  "src/core/SkBlitMask_opts_ssse3.cpp",
+  "src/core/SkBlitRow_opts_hsw.cpp",
+  "src/core/SkSwizzler_opts_hsw.cpp",
+  "src/core/SkSwizzler_opts_ssse3.cpp",
   "src/opts/SkOpts_hsw.cpp",
 }
 

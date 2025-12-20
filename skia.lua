@@ -42,9 +42,11 @@ files {
   "src/base/SkQuads.cpp",
   "src/base/SkSafeMath.cpp",
   "src/base/SkSemaphore.cpp",
+  "src/base/SkSharedMutex.cpp",
   "src/base/SkSpinlock.cpp",
   "src/base/SkTDArray.cpp",
   "src/base/SkThreadID.cpp",
+  "src/base/SkTSearch.cpp",
   "src/base/SkUTF.cpp",
   "src/base/SkUtils.cpp",
   "src/codec/SkBmpBaseCodec.cpp",
@@ -512,10 +514,11 @@ local common_unix = {
 
 local common_linux = {
   common_unix,
-  "src/ports/SkFontMgr_fontconfig.cpp",
   "src/ports/SkFontConfigInterface_direct.cpp",
-  "src/ports/SkFontHost_FreeType.cpp",
   "src/ports/SkFontHost_FreeType_common.cpp",
+  "src/ports/SkFontHost_FreeType.cpp",
+  "src/ports/SkFontMgr_fontconfig.cpp",
+  "src/ports/SkTypeface_proxy.cpp",
 }
 
 local common_android = {

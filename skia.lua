@@ -539,6 +539,7 @@ local common_cocoa = {
   "src/ports/SkScalerContext_mac_ct.cpp",
   "src/ports/SkTypeface_mac_ct.cpp",
   "src/utils/mac/SkCTFont.cpp",
+  "src/utils/mac/SkCTFontCreateExactCopy.cpp",
 }
 
 -- Opts SSE

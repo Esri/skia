@@ -524,10 +524,11 @@ local common_linux = {
 local common_android = {
   common_unix,
   "src/ports/SkDebug_android.cpp",
-  "src/ports/SkFontHost_FreeType.cpp",
   "src/ports/SkFontHost_FreeType_common.cpp",
-  "src/ports/SkFontMgr_android.cpp",
+  "src/ports/SkFontHost_FreeType.cpp",
   "src/ports/SkFontMgr_android_parser.cpp",
+  "src/ports/SkFontMgr_android.cpp",
+  "src/ports/SkTypeface_proxy.cpp",
 }
 
 -- add common MacOS and iOS

@@ -618,13 +618,9 @@ if (_PLATFORM_IOS) then
 end
 
 if (_PLATFORM_LINUX) then
-  buildoptions {
-    "-mavx",
-    "-mavx2",
-    "-mavx512dq",
-    "-mavx512f",
-    "-mevex512",
-    "-mf16c",
+  defines {
+    "SKCMS_DISABLE_HSW",
+    "SKCMS_DISABLE_SKX",
   }
 
   includedirs {

@@ -3,7 +3,7 @@ from conans import ConanFile
 
 class SkiaConan(ConanFile):
     name = "skia"
-    version = "m98"
+    version = "m143"
     url = "https://github.com/Esri/skia/tree/runtimecore"
     license = "https://github.com/Esri/skia/blob/runtimecore/LICENSE"
     description = "Skia is a complete 2D graphic library for drawing Text, Geometries, and Images."

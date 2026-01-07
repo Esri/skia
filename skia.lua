@@ -7,6 +7,8 @@ configuration { "*" }
 uuid "0A843431-DAE5-47CB-8301-5A731AE23379"
 
 defines {
+  "SK_CODEC_DECODES_BMP",
+  "SK_CODEC_DECODES_GIF",
   "SK_CODEC_DECODES_JPEG",
   "SK_CODEC_DECODES_PNG_WITH_LIBPNG",
   "SK_ENCODE_JPEG",
@@ -166,6 +168,7 @@ files {
   "src/core/SkMaskFilter.cpp",
   "src/core/SkMaskFilterBase.cpp",
   "src/core/SkMaskGamma.cpp",
+  "src/core/SkMasks.cpp",
   "src/core/SkMatrix.cpp",
   "src/core/SkMatrixInvert.cpp",
   "src/core/SkMD5.cpp",

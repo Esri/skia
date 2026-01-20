@@ -7,11 +7,16 @@
 
 #include "bench/Benchmark.h"
 #include "include/core/SkPath.h"
-#include "src/core/SkArenaAlloc.h"
-#include "src/gpu/GrEagerVertexAllocator.h"
-#include "src/gpu/geometry/GrInnerFanTriangulator.h"
-#include "src/gpu/geometry/GrTriangulator.h"
+#include "include/core/SkPathBuilder.h"
+#include "src/base/SkArenaAlloc.h"
+#include "src/gpu/ganesh/GrEagerVertexAllocator.h"
+#include "src/gpu/ganesh/geometry/GrInnerFanTriangulator.h"
+#include "src/gpu/ganesh/geometry/GrTriangulator.h"
 #include <vector>
+
+using namespace skia_private;
+
+#if !defined(SK_ENABLE_OPTIMIZE_SIZE)
 
 struct TigerPath {
     const char* fVerbs;
@@ -30,38 +35,39 @@ public:
     }
 
     const char* onGetName() override { return fName.c_str(); }
-    bool isSuitableFor(Backend backend) final { return backend == kNonRendering_Backend; }
+    bool isSuitableFor(Backend backend) final { return backend == Backend::kNonRendering; }
 
 protected:
     void onDelayedSetup() override {
         for (int i = 0; i < kNumTigerPaths; ++i) {
-            SkPath& path = fPaths.push_back();
+            SkPathBuilder builder;
             const std::vector<SkPoint>& pts = kTigerPaths[i].fPoints;
             int ptsIdx = 0;
             for (const char* v = kTigerPaths[i].fVerbs; *v; ++v) {
                 switch (*v) {
                     case 'm':
-                        path.moveTo(pts[ptsIdx]);
+                        builder.moveTo(pts[ptsIdx]);
                         ++ptsIdx;
                         break;
                     case 'l':
-                        path.lineTo(pts[ptsIdx]);
+                        builder.lineTo(pts[ptsIdx]);
                         ++ptsIdx;
                         break;
                     case 'q':
-                        path.quadTo(pts[ptsIdx], pts[ptsIdx + 1]);
+                        builder.quadTo(pts[ptsIdx], pts[ptsIdx + 1]);
                         ptsIdx += 2;
                         break;
                     case 'c':
-                        path.cubicTo(pts[ptsIdx], pts[ptsIdx + 1], pts[ptsIdx + 2]);
+                        builder.cubicTo(pts[ptsIdx], pts[ptsIdx + 1], pts[ptsIdx + 2]);
                         ptsIdx += 3;
                         break;
                     case 'z':
-                        path.close();
+                        builder.close();
                         break;
                 }
             }
             SkASSERT(ptsIdx == (int)pts.size());
+            fPaths.push_back(builder.detach());
         }
     }
 
@@ -85,8 +91,8 @@ protected:
     virtual void doLoop() = 0;
 
     SkString fName;
-    SkTArray<SkPath> fPaths;
-    SkAutoTMalloc<char> fVertexData;
+    TArray<SkPath> fPaths;
+    AutoTMalloc<char> fVertexData;
     size_t fVertexAllocSize = 0;
     SkArenaAllocWithReset fArena{GrTriangulator::kArenaDefaultChunkSize};
 };
@@ -104,7 +110,7 @@ public:
     }
 };
 
-DEF_BENCH( return new PathToTrianglesBench(); );
+DEF_BENCH( return new PathToTrianglesBench(); )
 
 class TriangulateInnerFanBench : public TriangulatorBenchmark {
 public:
@@ -120,7 +126,7 @@ public:
     }
 };
 
-DEF_BENCH( return new TriangulateInnerFanBench(); );
+DEF_BENCH( return new TriangulateInnerFanBench(); )
 
 #if 0
 #include "src/gpu/tessellate/GrMiddleOutPolygonTriangulator.h"
@@ -580,4 +586,6 @@ TigerPath kTigerPaths[] = {
       {36.856f,98.898f}}},
 };
 
-int kNumTigerPaths = (int)SK_ARRAY_COUNT(kTigerPaths);
+int kNumTigerPaths = (int)std::size(kTigerPaths);
+
+#endif // SK_ENABLE_OPTIMIZE_SIZE

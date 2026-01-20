@@ -5,9 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "include/core/SkData.h"
 #include "include/core/SkDataTable.h"
-#include "include/private/SkOnce.h"
+
+#include "include/core/SkRefCnt.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkMalloc.h"
+
+#include <cstring>
 
 static void malloc_freeproc(void* context) {
     sk_free(context);
@@ -78,9 +82,7 @@ const void* SkDataTable::at(int index, size_t* size) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 sk_sp<SkDataTable> SkDataTable::MakeEmpty() {
-    static SkDataTable* singleton;
-    static SkOnce once;
-    once([]{ singleton = new SkDataTable(); });
+    static SkDataTable* singleton = new SkDataTable();
     return sk_ref_sp(singleton);
 }
 

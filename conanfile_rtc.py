@@ -3,7 +3,7 @@ from conans import ConanFile
 
 class SkiaConan(ConanFile):
     name = "skia"
-    version = "m98"
+    version = "m143"
     url = "https://github.com/Esri/skia/tree/runtimecore"
     license = "https://github.com/Esri/skia/blob/runtimecore/LICENSE"
     description = "Skia is a complete 2D graphic library for drawing Text, Geometries, and Images."
@@ -22,12 +22,15 @@ class SkiaConan(ConanFile):
         self.copy("*.h*", src=base + "include/effects", dst=relative + "include/effects")
         self.copy("*.h*", src=base + "include/encode", dst=relative + "include/encode")
         self.copy("*.h*", src=base + "include/gpu", dst=relative + "include/gpu")
+        self.copy("*.h*", src=base + "include/ports", dst=relative + "include/ports")
         self.copy("*.h*", src=base + "include/private", dst=relative + "include/private")
-        self.copy("skcms.h", src=base + "include/third_party/skcms", dst=relative + "include/third_party/skcms")
+        self.copy("skcms.h", src=base + "modules/skcms", dst=relative + "modules/skcms")
 
+        self.copy("*.h*", src=base + "src/base", dst=relative + "src/base")
         self.copy("*.h*", src=base + "src/core", dst=relative + "src/core")
         self.copy("*.h*", src=base + "src/shaders", dst=relative + "src/shaders")
         self.copy("*.h*", src=base + "src/utils", dst=relative + "src/utils")
+        self.copy("skcms_public.h", src=base + "modules/skcms/src", dst=relative + "modules/skcms/src")
 
         # libraries
         output = "output/" + str(self.settings.platform_architecture_target) + "/staticlib"

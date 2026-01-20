@@ -18,12 +18,24 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypeface.h"
-#include "tools/ToolUtils.h"
-
 #include "modules/skparagraph/include/Paragraph.h"
 #include "modules/skparagraph/src/ParagraphBuilderImpl.h"
+#include "tools/ToolUtils.h"
+#include "tools/fonts/FontToolUtils.h"
 
-static const char* gSpeach = "Five score years ago, a great American, in whose symbolic shadow we stand today, signed the Emancipation Proclamation. This momentous decree came as a great beacon light of hope to millions of Negro slaves who had been seared in the flames of withering injustice. It came as a joyous daybreak to end the long night of their captivity.";
+static const char* gSpeech = "Five score years ago, a great American, in whose symbolic shadow we stand today, signed the Emancipation Proclamation. This momentous decree came as a great beacon light of hope to millions of Negro slaves who had been seared in the flames of withering injustice. It came as a joyous daybreak to end the long night of their captivity.";
+
+#if defined(SK_UNICODE_ICU_IMPLEMENTATION)
+#include "modules/skunicode/include/SkUnicode_icu.h"
+#endif
+
+#if defined(SK_UNICODE_LIBGRAPHEME_IMPLEMENTATION)
+#include "modules/skunicode/include/SkUnicode_libgrapheme.h"
+#endif
+
+#if defined(SK_UNICODE_ICU4X_IMPLEMENTATION)
+#include "modules/skunicode/include/SkUnicode_icu4x.h"
+#endif
 
 namespace {
 enum ParaFlags {
@@ -31,8 +43,28 @@ enum ParaFlags {
     kUseUnderline   = 1 << 1,
     kShowVisitor    = 1 << 2,
 };
+
+sk_sp<SkUnicode> get_unicode() {
+#if defined(SK_UNICODE_ICU_IMPLEMENTATION)
+    if (auto unicode = SkUnicodes::ICU::Make()) {
+        return unicode;
+    }
+#endif
+#if defined(SK_UNICODE_LIBGRAPHEME_IMPLEMENTATION)
+    if (auto unicode = SkUnicodes::Libgrapheme::Make()) {
+        return unicode;
+    }
+#endif
+#if defined(SK_UNICODE_ICU4X_IMPLEMENTATION)
+    if (auto unicode = SkUnicodes::ICU4X::Make()) {
+        return unicode;
+    }
+#endif
+    return nullptr;
+}
 }  // namespace
 
+// TODO: Make it work with ALL possible SkUnicodes
 class ParagraphGM : public skiagm::GM {
     std::unique_ptr<skia::textlayout::Paragraph> fPara;
     const unsigned fFlags;
@@ -56,15 +88,27 @@ public:
         skia::textlayout::ParagraphStyle paraStyle;
         paraStyle.setTextStyle(style);
 
+        sk_sp<SkFontMgr> fontmgr = ToolUtils::TestFontMgr();
+        if (fontmgr->countFamilies() == 0) {
+            fPara = nullptr;
+            return;
+        }
         auto collection = sk_make_sp<skia::textlayout::FontCollection>();
-        collection->setDefaultFontManager(SkFontMgr::RefDefault());
-        auto builder = skia::textlayout::ParagraphBuilderImpl::make(paraStyle, collection);
+        collection->setDefaultFontManager(std::move(fontmgr));
+
+        auto unicode = get_unicode();
+        if (!unicode) {
+            fPara = nullptr;
+            return;
+        }
+        auto builder = skia::textlayout::ParagraphBuilderImpl::make(
+                paraStyle, collection, unicode);
         if (nullptr == builder) {
             fPara = nullptr;
             return;
         }
 
-        builder->addText(gSpeach, strlen(gSpeach));
+        builder->addText(gSpeech, strlen(gSpeech));
 
         fPara = builder->Build();
         fPara->layout(400);
@@ -75,7 +119,7 @@ protected:
         this->buildParagraph();
     }
 
-    SkString onShortName() override {
+    SkString getName() const override {
         SkString name;
         name.printf("paragraph%s_%s",
                     fFlags & kTimeLayout   ? "_layout"    : "",
@@ -86,7 +130,7 @@ protected:
         return name;
     }
 
-    SkISize onISize() override {
+    SkISize getISize() override {
         if (fFlags & kShowVisitor) {
             return SkISize::Make(810, 420);
         }
@@ -110,8 +154,8 @@ protected:
             if (!info) {
                 return;
             }
-            canvas->drawGlyphs(info->count, info->glyphs, info->positions, info->origin,
-                               info->font, p);
+            canvas->drawGlyphs({info->glyphs, info->count}, {info->positions, info->count},
+                               info->origin, info->font, p);
 
             if (fFlags & kUseUnderline) {
                 // Need to modify positions to roll-in the orign
@@ -124,8 +168,7 @@ protected:
                 const SkScalar X0 = pos[0].fX;
                 const SkScalar X1 = X0 + info->advanceX;
                 const SkScalar Y  = pos[0].fY;
-                auto sects = info->font.getIntercepts(info->glyphs, info->count, pos.data(),
-                                                      Y+1, Y+3);
+                auto sects = info->font.getIntercepts({info->glyphs, info->count}, pos, Y+1, Y+3);
 
                 SkScalar x0 = X0;
                 for (size_t i = 0; i < sects.size(); i += 2) {
@@ -138,25 +181,27 @@ protected:
                 canvas->drawLine(x0, Y+2, X1, Y+2, underp);
             }
 
-            if (info->utf8Starts && false) {
-                SkString str;
-                for (int i = 0; i < info->count; ++i) {
-                    str.appendUnichar(gSpeach[info->utf8Starts[i]]);
+            if ((false)) {
+                if (info->utf8Starts) {
+                    SkString str;
+                    for (int i = 0; i < info->count; ++i) {
+                        str.appendUnichar(gSpeech[info->utf8Starts[i]]);
+                    }
+                    SkDebugf("'%s'\n", str.c_str());
                 }
-                SkDebugf("'%s'\n", str.c_str());
-            }
 
-            if (false) {    // show position points
-            for (int i = 0; i < info->count; ++i) {
-                auto pos = info->positions[i];
-                canvas->drawPoint(pos.fX + info->origin.fX, pos.fY + info->origin.fY, p2);
-            }
+                // show position points
+                for (int i = 0; i < info->count; ++i) {
+                    auto pos = info->positions[i];
+                    canvas->drawPoint(pos.fX + info->origin.fX, pos.fY + info->origin.fY, p2);
+                }
             }
         });
     }
 
     DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
         if (nullptr == fPara) {
+            *errorMsg = "Font manager had no fonts or could not build paragraph.";
             return DrawResult::kSkip;
         }
 

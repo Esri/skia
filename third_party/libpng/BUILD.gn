@@ -4,7 +4,7 @@
 # found in the LICENSE file.
 
 declare_args() {
-  skia_use_system_libpng = is_official_build
+  skia_use_system_libpng = is_official_build && !is_wasm
 }
 
 import("../third_party.gni")
@@ -53,6 +53,13 @@ if (skia_use_system_libpng) {
       sources += [
         "../externals/libpng/intel/filter_sse2_intrinsics.c",
         "../externals/libpng/intel/intel_init.c",
+      ]
+    }
+
+    if (current_cpu == "loong64") {
+      sources += [
+        "../externals/libpng/loongarch/filter_lsx_intrinsics.c",
+        "../externals/libpng/loongarch/loongarch_lsx_init.c",
       ]
     }
   }

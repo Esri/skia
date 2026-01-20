@@ -8,6 +8,7 @@
 #include "client_utils/android/BitmapRegionDecoder.h"
 #include "client_utils/android/BitmapRegionDecoderPriv.h"
 #include "include/codec/SkAndroidCodec.h"
+#include "include/codec/SkEncodedImageFormat.h"
 #include "src/codec/SkCodecPriv.h"
 
 namespace android {
@@ -25,6 +26,7 @@ std::unique_ptr<BitmapRegionDecoder> BitmapRegionDecoder::Make(sk_sp<SkData> dat
         case SkEncodedImageFormat::kPNG:
         case SkEncodedImageFormat::kWEBP:
         case SkEncodedImageFormat::kHEIF:
+        case SkEncodedImageFormat::kAVIF:
             break;
         default:
             return nullptr;
@@ -81,7 +83,7 @@ bool BitmapRegionDecoder::decodeRegion(SkBitmap* bitmap, BRDAllocator* allocator
     // Create the image info for the decode
     SkAlphaType dstAlphaType = fCodec->computeOutputAlphaType(requireUnpremul);
     SkImageInfo decodeInfo =
-            SkImageInfo::Make(scaledSize, dstColorType, dstAlphaType, dstColorSpace);
+            SkImageInfo::Make(scaledSize, dstColorType, dstAlphaType, std::move(dstColorSpace));
 
     // Initialize the destination bitmap
     int scaledOutX = 0;

@@ -11,19 +11,14 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrContextOptions.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkGeometry.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrDrawingManager.h"
-#include "src/gpu/GrRecordingContextPriv.h"
 
 static constexpr float kStrokeWidth = 30;
 static constexpr int kCellSize = 200;
@@ -60,6 +55,7 @@ static const TrickyCubic kTrickyCubics[] = {
     {{{0,0}, {0,-10}, {0,-10}, {0,10}}, 4, CellFillMode::kCenter, 1.098283f},  // Flat line with 180
     {{{10,0}, {0,0}, {20,0}, {10,0}}, 4, CellFillMode::kStretch},  // Flat line with 2 180s
     {{{39,-39}, {40,-40}, {40,-40}, {0,0}}, 4, CellFillMode::kStretch},  // Flat diagonal with 180
+    {{{39,-39}, {40,-40}, {37,-39}, {0,0}}, 4, CellFillMode::kStretch},  // Near-flat diagonal
     {{{40, 40}, {0, 0}, {200, 200}, {0, 0}}, 4, CellFillMode::kStretch},  // Diag w/ an internal 180
     {{{0,0}, {1e-2f,0}, {-1e-2f,0}, {0,0}}, 4, CellFillMode::kCenter},  // Circle
     {{{400.75f,100.05f}, {400.75f,100.05f}, {100.05f,300.95f}, {100.05f,300.95f}}, 4,
@@ -104,15 +100,7 @@ enum class FillMode {
 static void draw_test(SkCanvas* canvas, SkPaint::Cap cap, SkPaint::Join join) {
     SkRandom rand;
 
-    if (canvas->recordingContext() &&
-        canvas->recordingContext()->priv().caps()->shaderCaps()->tessellationSupport() &&
-        canvas->recordingContext()->priv().caps()->shaderCaps()->maxTessellationSegments() == 5) {
-        // The caller successfully overrode the max tessellation segments to 5. Indicate this in the
-        // background color.
-        canvas->clear(SkColorSetARGB(255, 64, 0, 0));
-    } else {
-        canvas->clear(SK_ColorBLACK);
-    }
+    canvas->clear(SK_ColorBLACK);
 
     SkPaint strokePaint;
     strokePaint.setAntiAlias(true);
@@ -121,7 +109,7 @@ static void draw_test(SkCanvas* canvas, SkPaint::Cap cap, SkPaint::Join join) {
     strokePaint.setStrokeCap(cap);
     strokePaint.setStrokeJoin(join);
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(kTrickyCubics); ++i) {
+    for (size_t i = 0; i < std::size(kTrickyCubics); ++i) {
         auto [originalPts, numPts, fillMode, scale] = kTrickyCubics[i];
 
         SkASSERT(numPts <= 4);
@@ -145,31 +133,29 @@ static void draw_test(SkCanvas* canvas, SkPaint::Cap cap, SkPaint::Join join) {
         }
         strokeBounds.outset(kStrokeWidth, kStrokeWidth);
 
-        SkMatrix matrix;
-        if (fillMode == CellFillMode::kStretch) {
-            matrix = SkMatrix::RectToRect(strokeBounds, cellRect, SkMatrix::kCenter_ScaleToFit);
-        } else {
-            matrix.setTranslate(cellRect.x() + kStrokeWidth +
+        SkMatrix matrix = (fillMode == CellFillMode::kStretch) ?
+            SkMatrix::RectToRectOrIdentity(strokeBounds, cellRect, SkMatrix::kCenter_ScaleToFit) :
+            SkMatrix::Translate(cellRect.x() + kStrokeWidth +
                                 (cellRect.width() - strokeBounds.width()) / 2,
                                 cellRect.y() + kStrokeWidth +
                                 (cellRect.height() - strokeBounds.height()) / 2);
-        }
 
         SkAutoCanvasRestore acr(canvas, true);
         canvas->concat(matrix);
         strokePaint.setStrokeWidth(kStrokeWidth / matrix.getMaxScale());
         strokePaint.setColor(rand.nextU() | 0xff808080);
-        SkPath path = SkPath().moveTo(p[0]);
+        SkPathBuilder builder;
+        builder.moveTo(p[0]);
         if (numPts == 4) {
-            path.cubicTo(p[1], p[2], p[3]);
+            builder.cubicTo(p[1], p[2], p[3]);
         } else if (w == 1) {
             SkASSERT(numPts == 3);
-            path.quadTo(p[1], p[2]);
+            builder.quadTo(p[1], p[2]);
         } else {
             SkASSERT(numPts == 3);
-            path.conicTo(p[1], p[2], w);
+            builder.conicTo(p[1], p[2], w);
         }
-        canvas->drawPath(path, strokePaint);
+        canvas->drawPath(builder.detach(), strokePaint);
     }
 }
 
@@ -181,64 +167,28 @@ DEF_SIMPLE_GM(trickycubicstrokes_roundcaps, canvas, kTestWidth, kTestHeight) {
     draw_test(canvas, SkPaint::kRound_Cap, SkPaint::kRound_Join);
 }
 
-#if SK_GPU_V1
-#include "src/gpu/ops/TessellationPathRenderer.h"
+// See b/433057370
+DEF_SIMPLE_GM(trickycubicstrokes_largeradius, canvas, 128, 256) {
+    SkPathBuilder b;
 
-class TrickyCubicStrokes_tess_segs_5 : public skiagm::GM {
-    SkString onShortName() override {
-        return SkString("trickycubicstrokes_tess_segs_5");
+    // Starts as a line with a single tangent direction, with increasing curvature
+    for (int y = 0; y < 2; ++y) {
+        float shift = 210.f * y;
+        float dy = 5.f * y;
+        b.moveTo(159.429f, 149.808f + shift)
+         .cubicTo({232.5f, 149.808f + dy + shift},
+                  {232.5f, 149.808f + dy + shift},
+                  {305.572f, 149.808f + shift});
     }
 
-    SkISize onISize() override {
-        return SkISize::Make(kTestWidth, kTestHeight);
-    }
-
-    // Pick a very small, odd (and better yet, prime) number of segments.
-    //
-    // - Odd because it makes the tessellation strip asymmetric, which will be important to test for
-    //   future plans that involve drawing in reverse order.
-    //
-    // - >=4 because the tessellator code will just assume we have enough to combine a miter join
-    //   and line in a single patch. (Requires 4 segments. Spec required minimum is 64.)
-    static constexpr int kMaxTessellationSegmentsOverride = 5;
-
-    void modifyGrContextOptions(GrContextOptions* options) override {
-        options->fMaxTessellationSegmentsOverride = kMaxTessellationSegmentsOverride;
-        options->fAlwaysPreferHardwareTessellation = true;
-        // Only allow the tessellation path renderer.
-        options->fGpuPathRenderers = (GpuPathRenderers)((int)options->fGpuPathRenderers &
-                                                        (int)GpuPathRenderers::kTessellation);
-    }
-
-    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
-        auto dContext = GrAsDirectContext(canvas->recordingContext());
-        if (!dContext) {
-            *errorMsg = "GM relies on having access to a live direct context.";
-            return DrawResult::kSkip;
-        }
-
-        if (!dContext->priv().caps()->shaderCaps()->tessellationSupport() ||
-            !skgpu::v1::TessellationPathRenderer::IsSupported(*dContext->priv().caps())) {
-            errorMsg->set("Tessellation not supported.");
-            return DrawResult::kSkip;
-        }
-        auto opts = dContext->priv().drawingManager()->testingOnly_getOptionsForPathRendererChain();
-        if (!(opts.fGpuPathRenderers & GpuPathRenderers::kTessellation)) {
-            errorMsg->set("TessellationPathRenderer disabled.");
-            return DrawResult::kSkip;
-        }
-        if (dContext->priv().caps()->shaderCaps()->maxTessellationSegments() !=
-            kMaxTessellationSegmentsOverride) {
-            errorMsg->set("modifyGrContextOptions did not affect maxTessellationSegments. "
-                          "(Are you running viewer? If so use '--maxTessellationSegments 5'.)");
-            return DrawResult::kFail;
-        }
-        // Suppress a tessellator warning message that caps.maxTessellationSegments is too small.
-        GrRecordingContextPriv::AutoSuppressWarningMessages aswm(dContext);
-        draw_test(canvas, SkPaint::kButt_Cap, SkPaint::kMiter_Join);
-        return DrawResult::kOk;
-    }
-};
-
-DEF_GM( return new TrickyCubicStrokes_tess_segs_5; )
-#endif // SK_GPU_V1
+    // A large stroke width is required to show the cusp circle artifacts with
+    // the tessellating path renderer
+    SkPaint s;
+    s.setStroke(true);
+    s.setStrokeWidth(200.f);
+    s.setAntiAlias(true);
+    b.setFillType(SkPathFillType::kWinding);
+    canvas->scale(0.5f, 0.5f);
+    canvas->translate(-125.f, 0.f);
+    canvas->drawPath(b.detach(), s);
+}

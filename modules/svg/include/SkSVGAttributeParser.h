@@ -8,15 +8,24 @@
 #ifndef SkSVGAttributeParser_DEFINED
 #define SkSVGAttributeParser_DEFINED
 
+#include "include/core/SkColor.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/base/SkNoncopyable.h"
+#include "modules/svg/include/SkSVGTypes.h"
+
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <tuple>
 #include <vector>
 
-#include "include/private/SkNoncopyable.h"
-#include "modules/svg/include/SkSVGTypes.h"
-#include "src/core/SkTLazy.h"
+class SkMatrix;
+class SkString;
 
 class SkSVGAttributeParser : public SkNoncopyable {
 public:
-    SkSVGAttributeParser(const char[]);
+    explicit SkSVGAttributeParser(const char[]);
 
     bool parseInteger(SkSVGIntegerType*);
     bool parseViewBox(SkSVGViewBoxType*);
@@ -26,15 +35,14 @@ public:
     //      so they can be used by parse<T>():
     bool parse(SkSVGIntegerType* v) { return parseInteger(v); }
 
-    template <typename T> using ParseResult = SkTLazy<T>;
+    template <typename T> using ParseResult = std::optional<T>;
 
     template <typename T> static ParseResult<T> parse(const char* value) {
-        ParseResult<T> result;
         T parsedValue;
         if (SkSVGAttributeParser(value).parse(&parsedValue)) {
-            result.set(std::move(parsedValue));
+            return parsedValue;
         }
-        return result;
+        return {};
     }
 
     template <typename T>
@@ -57,20 +65,38 @@ public:
         }
 
         if (!strcmp(value, "inherit")) {
-            PropertyT result(SkSVGPropertyState::kInherit);
-            return ParseResult<PropertyT>(&result);
+            return PropertyT(SkSVGPropertyState::kInherit);
         }
 
         auto pr = parse<typename PropertyT::ValueT>(value);
-        if (pr.isValid()) {
-            PropertyT result(*pr);
-            return ParseResult<PropertyT>(&result);
+        if (pr.has_value()) {
+            return PropertyT(*pr);
         }
 
         return ParseResult<PropertyT>();
     }
 
 private:
+    class RestoreCurPos {
+    public:
+        explicit RestoreCurPos(SkSVGAttributeParser* self)
+            : fSelf(self), fCurPos(self->fCurPos) {}
+
+        ~RestoreCurPos() {
+            if (fSelf) {
+                fSelf->fCurPos = this->fCurPos;
+            }
+        }
+
+        void clear() { fSelf = nullptr; }
+    private:
+        SkSVGAttributeParser* fSelf;
+        const char* fCurPos;
+
+        RestoreCurPos(           const RestoreCurPos&) = delete;
+        RestoreCurPos& operator=(const RestoreCurPos&) = delete;
+    };
+
     // Stack-only
     void* operator new(size_t) = delete;
     void* operator new(size_t, void*) = delete;
@@ -82,6 +108,7 @@ private:
     bool advanceWhile(F func);
 
     bool matchStringToken(const char* token, const char** newPos = nullptr) const;
+    bool matchHexToken(const char** newPos) const;
 
     bool parseWSToken();
     bool parseEOSToken();
@@ -90,12 +117,20 @@ private:
     bool parseExpectedStringToken(const char*);
     bool parseScalarToken(SkScalar*);
     bool parseInt32Token(int32_t*);
-    bool parseHexToken(uint32_t*);
+    bool parseEscape(SkUnichar*);
+    bool parseIdentToken(SkString*);
     bool parseLengthUnitToken(SkSVGLength::Unit*);
     bool parseNamedColorToken(SkColor*);
     bool parseHexColorToken(SkColor*);
+    bool parseColorComponentScalarToken(int32_t*);
+    bool parseColorComponentIntegralToken(int32_t*);
+    bool parseColorComponentFractionalToken(int32_t*);
     bool parseColorComponentToken(int32_t*);
+    bool parseColorToken(SkColor*);
     bool parseRGBColorToken(SkColor*);
+    bool parseRGBAColorToken(SkColor*);
+    bool parseSVGColor(SkSVGColor*, SkSVGColor::Vars&&);
+    bool parseSVGColorType(SkSVGColorType*);
     bool parseFuncIRI(SkSVGFuncIRI*);
 
     // Transform helpers
@@ -116,7 +151,7 @@ private:
 
     template <typename T, typename TArray>
     bool parseEnumMap(const TArray& arr, T* result) {
-        for (size_t i = 0; i < SK_ARRAY_COUNT(arr); ++i) {
+        for (size_t i = 0; i < std::size(arr); ++i) {
             if (this->parseExpectedStringToken(std::get<0>(arr[i]))) {
                 *result = std::get<1>(arr[i]);
                 return true;
@@ -127,6 +162,7 @@ private:
 
     // The current position in the input string.
     const char* fCurPos;
+    const char* fEndPos;
 
     using INHERITED = SkNoncopyable;
 };

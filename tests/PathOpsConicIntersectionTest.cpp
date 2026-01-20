@@ -4,10 +4,19 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+#include "include/core/SkPoint.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
 #include "src/core/SkGeometry.h"
 #include "src/pathops/SkIntersections.h"
+#include "src/pathops/SkPathOpsConic.h"
+#include "src/pathops/SkPathOpsPoint.h"
+#include "src/pathops/SkPathOpsQuad.h"
+#include "src/pathops/SkPathOpsTypes.h"
 #include "tests/PathOpsTestCommon.h"
 #include "tests/Test.h"
+
+#include <array>
 
 /*
 manually compute the intersection of a pair of circles and see if the conic intersection matches
@@ -42,7 +51,7 @@ static const ConicPts testSet[] = {
 
 };
 
-const int testSetCount = (int) SK_ARRAY_COUNT(testSet);
+const int testSetCount = (int) std::size(testSet);
 
 static void chopCompare(const SkConic chopped[2], const SkDConic dChopped[2]) {
     SkASSERT(roughly_equal(chopped[0].fW, dChopped[0].fWeight));
@@ -60,16 +69,15 @@ static void chopCompare(const SkConic chopped[2], const SkDConic dChopped[2]) {
 #endif
 }
 
+#define DEBUG_VISUALIZE_CONICS 0
+
+#if DEBUG_VISUALIZE_CONICS
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
-#include "include/core/SkImageEncoder.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkString.h"
 #include "src/pathops/SkPathOpsRect.h"
 
-#define DEBUG_VISUALIZE_CONICS 0
-
-#if DEBUG_VISUALIZE_CONICS
 static void writePng(const SkConic& c, const SkConic ch[2], const char* name) {
     const int scale = 10;
     SkConic conic, chopped[2];
@@ -96,21 +104,20 @@ static void writePng(const SkConic& c, const SkConic ch[2], const char* name) {
     paint.setStyle(SkPaint::kStroke_Style);
     canvas.translate(-bounds.fLeft, -bounds.fTop);
     canvas.drawColor(SK_ColorWHITE);
-    SkPath path;
-    path.moveTo(conic.fPts[0]);
-    path.conicTo(conic.fPts[1], conic.fPts[2], conic.fW);
+    SkPathBuilder builder;
+    builder.moveTo(conic.fPts[0]);
+    builder.conicTo(conic.fPts[1], conic.fPts[2], conic.fW);
     paint.setARGB(0x80, 0xFF, 0, 0);
-    canvas.drawPath(path, paint);
-    path.reset();
-    path.moveTo(chopped[0].fPts[0]);
-    path.conicTo(chopped[0].fPts[1], chopped[0].fPts[2], chopped[0].fW);
-    path.moveTo(chopped[1].fPts[0]);
-    path.conicTo(chopped[1].fPts[1], chopped[1].fPts[2], chopped[1].fW);
+    canvas.drawPath(builder.detach(), paint);
+    builder.moveTo(chopped[0].fPts[0]);
+    builder.conicTo(chopped[0].fPts[1], chopped[0].fPts[2], chopped[0].fW);
+    builder.moveTo(chopped[1].fPts[0]);
+    builder.conicTo(chopped[1].fPts[1], chopped[1].fPts[2], chopped[1].fW);
     paint.setARGB(0x80, 0, 0, 0xFF);
-    canvas.drawPath(path, paint);
+    canvas.drawPath(builder.detach(), paint);
     SkString filename("c:\\Users\\caryclark\\Documents\\");
     filename.appendf("%s.png", name);
-    ToolUtils::EncodeImageToFile(filename.c_str(), bitmap, SkEncodedImageFormat::kPNG, 100);
+    ToolUtils::EncodeImageToPngFile(filename.c_str(), bitmap);
 }
 
 static void writeDPng(const SkDConic& dC, const char* name) {
@@ -134,24 +141,24 @@ static void writeDPng(const SkDConic& dC, const char* name) {
     paint.setStyle(SkPaint::kStroke_Style);
     canvas.translate(SkDoubleToScalar(-bounds.fLeft), SkDoubleToScalar(-bounds.fTop));
     canvas.drawColor(SK_ColorWHITE);
-    SkPath path;
-    path.moveTo(dConic.fPts[0].asSkPoint());
-    path.conicTo(dConic.fPts[1].asSkPoint(), dConic.fPts[2].asSkPoint(), dConic.fWeight);
+    SkPathBuilder builder;
+    builder.moveTo(dConic.fPts[0].asSkPoint());
+    builder.conicTo(dConic.fPts[1].asSkPoint(), dConic.fPts[2].asSkPoint(), dConic.fWeight);
     paint.setARGB(0x80, 0xFF, 0, 0);
-    canvas.drawPath(path, paint);
-    path.reset();
+    canvas.drawPath(builder.detach(), paint);
+
     const int chops = 2;
     for (int tIndex = 0; tIndex < chops; ++tIndex) {
         SkDConic chopped = dConic.subDivide(tIndex / (double) chops,
                 (tIndex + 1) / (double) chops);
-        path.moveTo(chopped.fPts[0].asSkPoint());
-        path.conicTo(chopped.fPts[1].asSkPoint(), chopped.fPts[2].asSkPoint(), chopped.fWeight);
+        builder.moveTo(chopped.fPts[0].asSkPoint());
+        builder.conicTo(chopped.fPts[1].asSkPoint(), chopped.fPts[2].asSkPoint(), chopped.fWeight);
     }
     paint.setARGB(0x80, 0, 0, 0xFF);
-    canvas.drawPath(path, paint);
+    canvas.drawPath(builder.detach(), paint);
     SkString filename("c:\\Users\\caryclark\\Documents\\");
     filename.appendf("%s.png", name);
-    ToolUtils::EncodeImageToFile(filename.c_str(), bitmap, SkEncodedImageFormat::kPNG, 100);
+    ToolUtils::EncodeImageToPngFile(filename.c_str(), bitmap);
 }
 #endif
 
@@ -229,16 +236,16 @@ const SkDConic* frames[] = {
     frame0, frame1, frame2, frame3, frame4, frame5, frame6
 };
 
-const int frameSizes[] = { (int) SK_ARRAY_COUNT(frame0), (int) SK_ARRAY_COUNT(frame1),
-        (int) SK_ARRAY_COUNT(frame2), (int) SK_ARRAY_COUNT(frame3),
-        (int) SK_ARRAY_COUNT(frame4), (int) SK_ARRAY_COUNT(frame5),
-        (int) SK_ARRAY_COUNT(frame6),
+const int frameSizes[] = { (int) std::size(frame0), (int) std::size(frame1),
+        (int) std::size(frame2), (int) std::size(frame3),
+        (int) std::size(frame4), (int) std::size(frame5),
+        (int) std::size(frame6),
 };
 
 static void writeFrames() {
     const int scale = 5;
 
-    for (int index = 0; index < (int) SK_ARRAY_COUNT(frameSizes); ++index) {
+    for (int index = 0; index < (int) std::size(frameSizes); ++index) {
         SkDRect bounds;
         bool boundsSet = false;
         int frameSize = frameSizes[index];
@@ -276,19 +283,19 @@ static void writeFrames() {
             SkDConic dConic = {{{ {dC.fPts[0].fX * scale, dC.fPts[0].fY * scale },
                 {dC.fPts[1].fX * scale, dC.fPts[1].fY * scale },
                 {dC.fPts[2].fX * scale, dC.fPts[2].fY * scale }}}, dC.fWeight };
-            SkPath path;
-            path.moveTo(dConic.fPts[0].asSkPoint());
-            path.conicTo(dConic.fPts[1].asSkPoint(), dConic.fPts[2].asSkPoint(), dConic.fWeight);
+            SkPathBuilder builder;
+            builder.moveTo(dConic.fPts[0].asSkPoint());
+            builder.conicTo(dConic.fPts[1].asSkPoint(), dConic.fPts[2].asSkPoint(), dConic.fWeight);
             if (fIndex < 2) {
                 paint.setARGB(0x80, 0xFF, 0, 0);
             } else {
                 paint.setARGB(0x80, 0, 0, 0xFF);
             }
-            canvas.drawPath(path, paint);
+            canvas.drawPath(builder.detach(), paint);
         }
         SkString filename("c:\\Users\\caryclark\\Documents\\");
         filename.appendf("f%d.png", index);
-        ToolUtils::EncodeImageToFile(filename.c_str(), bitmap, SkEncodedImageFormat::kPNG, 100);
+        ToolUtils::EncodeImageToPngFile(filename.c_str(), bitmap);
     }
 }
 #endif

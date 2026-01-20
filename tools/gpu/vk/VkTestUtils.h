@@ -12,32 +12,41 @@
 
 #ifdef SK_VULKAN
 
-#include "include/gpu/vk/GrVkBackendContext.h"
-#include "include/gpu/vk/GrVkTypes.h"
-#include "tools/gpu/vk/GrVulkanDefines.h"
 #include <functional>
+#include "include/gpu/vk/VulkanBackendContext.h"
+#include "include/gpu/vk/VulkanPreferredFeatures.h"
+#include "tools/gpu/vk/VulkanDefines.h"
 
-class GrVkExtensions;
-struct GrVkBackendContext;
+namespace skgpu {
+struct VulkanBackendContext;
+class VulkanExtensions;
+}
 
 namespace sk_gpu_test {
-    bool LoadVkLibraryAndGetProcAddrFuncs(PFN_vkGetInstanceProcAddr*, PFN_vkGetDeviceProcAddr*);
+    struct TestVkFeatures {
+        VkPhysicalDeviceFeatures2 deviceFeatures;
+
+        // protectedMemoryFeatures and structs from skiaFeatures may be chained into deviceFeatures,
+        // so must share the same lifetime.
+        skgpu::VulkanPreferredFeatures skiaFeatures;
+        VkPhysicalDeviceProtectedMemoryFeatures protectedMemoryFeatures;
+    };
+
+    bool LoadVkLibraryAndGetProcAddrFuncs(PFN_vkGetInstanceProcAddr*);
 
     using CanPresentFn = std::function<bool(VkInstance, VkPhysicalDevice,
                                             uint32_t queueFamilyIndex)>;
 
-    bool CreateVkBackendContext(GrVkGetProc getProc,
-                                GrVkBackendContext* ctx,
-                                GrVkExtensions*,
-                                VkPhysicalDeviceFeatures2*,
-                                VkDebugReportCallbackEXT* debugCallback,
+    bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
+                                skgpu::VulkanBackendContext* ctx,
+                                skgpu::VulkanExtensions*,
+                                TestVkFeatures*,
+                                VkDebugUtilsMessengerEXT* debugMessenger,
                                 uint32_t* presentQueueIndexPtr = nullptr,
-                                CanPresentFn canPresent = CanPresentFn(),
+                                const CanPresentFn& canPresent = CanPresentFn(),
                                 bool isProtected = false);
 
-    void FreeVulkanFeaturesStructs(const VkPhysicalDeviceFeatures2*);
 }  // namespace sk_gpu_test
 
 #endif
 #endif
-

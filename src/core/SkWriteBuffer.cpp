@@ -7,29 +7,43 @@
 
 #include "src/core/SkWriteBuffer.h"
 
-#include "include/core/SkBitmap.h"
+#include "include/core/SkAlphaType.h"
 #include "include/core/SkData.h"
-#include "include/core/SkM44.h"
-#include "include/core/SkStream.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkPoint3.h"
+#include "include/core/SkRect.h"
 #include "include/core/SkTypeface.h"
-#include "include/private/SkTo.h"
-#include "src/core/SkImagePriv.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkTFitsIn.h"
+#include "include/private/base/SkTo.h"
 #include "src/core/SkMatrixPriv.h"
+#include "src/core/SkMipmap.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/core/SkPtrRecorder.h"
+#include "src/image/SkImage_Base.h"
+
+#if !defined(SK_DISABLE_LEGACY_PNG_WRITEBUFFER)
+#include "include/core/SkBitmap.h"
+#include "include/core/SkStream.h"
+#include "include/encode/SkPngEncoder.h"
+#endif
+
+#include <cstring>
+#include <utility>
+
+class SkMatrix;
+class SkPaint;
+class SkRegion;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-SkBinaryWriteBuffer::SkBinaryWriteBuffer()
-    : fFactorySet(nullptr)
-    , fTFSet(nullptr) {
-}
+SkBinaryWriteBuffer::SkBinaryWriteBuffer(const SkSerialProcs& p)
+        : SkWriteBuffer(p), fFactorySet(nullptr), fTFSet(nullptr) {}
 
-SkBinaryWriteBuffer::SkBinaryWriteBuffer(void* storage, size_t storageSize)
-    : fFactorySet(nullptr)
-    , fTFSet(nullptr)
-    , fWriter(storage, storageSize)
-{}
+SkBinaryWriteBuffer::SkBinaryWriteBuffer(void* storage, size_t storageSize, const SkSerialProcs& p)
+        : SkWriteBuffer(p), fFactorySet(nullptr), fTFSet(nullptr), fWriter(storage, storageSize) {}
 
 SkBinaryWriteBuffer::~SkBinaryWriteBuffer() {}
 
@@ -50,44 +64,44 @@ void SkBinaryWriteBuffer::writeScalar(SkScalar value) {
     fWriter.writeScalar(value);
 }
 
-void SkBinaryWriteBuffer::writeScalarArray(const SkScalar* value, uint32_t count) {
-    fWriter.write32(count);
-    fWriter.write(value, count * sizeof(SkScalar));
+void SkBinaryWriteBuffer::writeScalarArray(SkSpan<const SkScalar> values) {
+    fWriter.write32(SkToInt(values.size()));
+    fWriter.write(values.data(), values.size_bytes());
 }
 
 void SkBinaryWriteBuffer::writeInt(int32_t value) {
     fWriter.write32(value);
 }
 
-void SkBinaryWriteBuffer::writeIntArray(const int32_t* value, uint32_t count) {
-    fWriter.write32(count);
-    fWriter.write(value, count * sizeof(int32_t));
+void SkBinaryWriteBuffer::writeIntArray(SkSpan<const int32_t> values) {
+    fWriter.write32(SkToInt(values.size()));
+    fWriter.write(values.data(), values.size_bytes());
 }
 
 void SkBinaryWriteBuffer::writeUInt(uint32_t value) {
     fWriter.write32(value);
 }
 
-void SkBinaryWriteBuffer::writeString(const char* value) {
-    fWriter.writeString(value);
+void SkBinaryWriteBuffer::writeString(std::string_view value) {
+    fWriter.writeString(value.data(), value.size());
 }
 
 void SkBinaryWriteBuffer::writeColor(SkColor color) {
     fWriter.write32(color);
 }
 
-void SkBinaryWriteBuffer::writeColorArray(const SkColor* color, uint32_t count) {
-    fWriter.write32(count);
-    fWriter.write(color, count * sizeof(SkColor));
+void SkBinaryWriteBuffer::writeColorArray(SkSpan<const SkColor> values) {
+    fWriter.write32(SkToInt(values.size()));
+    fWriter.write(values.data(), values.size_bytes());
 }
 
 void SkBinaryWriteBuffer::writeColor4f(const SkColor4f& color) {
     fWriter.write(&color, sizeof(SkColor4f));
 }
 
-void SkBinaryWriteBuffer::writeColor4fArray(const SkColor4f* color, uint32_t count) {
-    fWriter.write32(count);
-    fWriter.write(color, count * sizeof(SkColor4f));
+void SkBinaryWriteBuffer::writeColor4fArray(SkSpan<const SkColor4f> values) {
+    fWriter.write32(SkToInt(values.size()));
+    fWriter.write(values.data(), values.size_bytes());
 }
 
 void SkBinaryWriteBuffer::writePoint(const SkPoint& point) {
@@ -99,9 +113,9 @@ void SkBinaryWriteBuffer::writePoint3(const SkPoint3& point) {
     this->writePad32(&point, sizeof(SkPoint3));
 }
 
-void SkBinaryWriteBuffer::writePointArray(const SkPoint* point, uint32_t count) {
-    fWriter.write32(count);
-    fWriter.write(point, count * sizeof(SkPoint));
+void SkBinaryWriteBuffer::writePointArray(SkSpan<const SkPoint> values) {
+    fWriter.write32(SkToInt(values.size()));
+    fWriter.write(values.data(), values.size_bytes());
 }
 
 void SkBinaryWriteBuffer::write(const SkM44& matrix) {
@@ -124,6 +138,10 @@ void SkBinaryWriteBuffer::writeRegion(const SkRegion& region) {
     fWriter.writeRegion(region);
 }
 
+void SkBinaryWriteBuffer::writeSampling(const SkSamplingOptions& sampling) {
+    fWriter.writeSampling(sampling);
+}
+
 void SkBinaryWriteBuffer::writePath(const SkPath& path) {
     fWriter.writePath(path);
 }
@@ -141,7 +159,57 @@ bool SkBinaryWriteBuffer::writeToStream(SkWStream* stream) const {
     return fWriter.writeToStream(stream);
 }
 
-#include "src/image/SkImage_Base.h"
+static sk_sp<SkData> serialize_image(const SkImage* image, SkSerialProcs procs) {
+    sk_sp<SkData> data;
+    if (procs.fImageProc) {
+        data = procs.fImageProc(const_cast<SkImage*>(image), procs.fImageCtx);
+    }
+    if (data) {
+        return data;
+    }
+    // Check to see if the image's source was an encoded block of data.
+    // If so, just use that.
+    data = image->refEncodedData();
+    if (data) {
+        return data;
+    }
+#if !defined(SK_DISABLE_LEGACY_PNG_WRITEBUFFER)
+    SkBitmap bm;
+    auto ib = as_IB(image);
+    if (!ib->getROPixels(ib->directContext(), &bm)) {
+        return nullptr;
+    }
+    if (auto result = SkPngEncoder::Encode(bm.pixmap(), SkPngEncoder::Options())) {
+        return result;
+    }
+#endif
+    return nullptr;
+}
+
+static sk_sp<SkData> serialize_mipmap(const SkMipmap* mipmap, SkSerialProcs procs) {
+    /*  Format
+        count_levels:32
+        for each level, starting with the biggest (index 0 in our iterator)
+            encoded_size:32
+            encoded_data (padded)
+    */
+    const int count = mipmap->countLevels();
+
+    // This buffer does not need procs because it is just writing SkDatas
+    SkBinaryWriteBuffer buffer({});
+    buffer.write32(count);
+    for (int i = 0; i < count; ++i) {
+        SkMipmap::Level level;
+        if (mipmap->getLevel(i, &level)) {
+            sk_sp<SkImage> levelImage = SkImages::RasterFromPixmap(level.fPixmap, nullptr, nullptr);
+            sk_sp<SkData> levelData = serialize_image(levelImage.get(), procs);
+            buffer.writeDataAsByteArray(levelData.get());
+        } else {
+            return nullptr;
+        }
+    }
+    return buffer.snapshotAsData();
+}
 
 /*  Format:
  *      flags: U32
@@ -161,23 +229,19 @@ void SkBinaryWriteBuffer::writeImage(const SkImage* image) {
 
     this->write32(flags);
 
-    sk_sp<SkData> data;
-    if (fProcs.fImageProc) {
-        data = fProcs.fImageProc(const_cast<SkImage*>(image), fProcs.fImageCtx);
-    }
-    if (!data) {
-        data = image->encodeToData();
-    }
+    sk_sp<SkData> data = serialize_image(image, fProcs);
+    SkASSERT(data);
     this->writeDataAsByteArray(data.get());
 
     if (flags & SkWriteBufferImageFlags::kHasMipmap) {
-        this->writeDataAsByteArray(mips->serialize().get());
+        sk_sp<SkData> mipData = serialize_mipmap(mips, fProcs);
+        this->writeDataAsByteArray(mipData.get());
     }
 }
 
 void SkBinaryWriteBuffer::writeTypeface(SkTypeface* obj) {
     // Write 32 bits (signed)
-    //   0 -- default font
+    //   0 -- empty font
     //  >0 -- index
     //  <0 -- custom (serial procs)
 

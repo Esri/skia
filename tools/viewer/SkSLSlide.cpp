@@ -8,16 +8,37 @@
 #include "tools/viewer/SkSLSlide.h"
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkClipOp.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkData.h"
 #include "include/core/SkFont.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkTileMode.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/effects/SkPerlinNoiseShader.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkSpan_impl.h"
 #include "include/sksl/SkSLDebugTrace.h"
-#include "src/core/SkEnumerate.h"
+#include "src/sksl/tracing/SkSLDebugTracePriv.h"
+#include "tools/DecodeUtils.h"
 #include "tools/Resources.h"
+#include "tools/fonts/FontToolUtils.h"
+#include "tools/sk_app/Application.h"
+#include "tools/sksltrace/SkSLTraceUtils.h"
 #include "tools/viewer/Viewer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <string>
+#include <string_view>
+
 #include "imgui.h"
 
 using namespace sk_app;
@@ -27,10 +48,10 @@ using namespace sk_app;
 static int InputTextCallback(ImGuiInputTextCallbackData* data) {
     if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
         SkString* s = (SkString*)data->UserData;
-        SkASSERT(data->Buf == s->writable_str());
+        SkASSERT(data->Buf == s->data());
         SkString tmp(data->Buf, data->BufTextLen);
         s->swap(tmp);
-        data->Buf = s->writable_str();
+        data->Buf = s->data();
     }
     return 0;
 }
@@ -68,7 +89,8 @@ void SkSLSlide::load(SkScalar winWidth, SkScalar winHeight) {
     shader = SkGradientShader::MakeSweep(256, 256, colors, nullptr, 2);
     fShaders.push_back(std::make_pair("Sweep Gradient", shader));
 
-    shader = GetResourceAsImage("images/mandrill_256.png")->makeShader(SkSamplingOptions());
+    shader = ToolUtils::GetResourceAsImage("images/mandrill_256.png")
+                     ->makeShader(SkSamplingOptions());
     fShaders.push_back(std::make_pair("Mandrill", shader));
 
     fResolution = { winWidth, winHeight, 1.0f };
@@ -77,15 +99,19 @@ void SkSLSlide::load(SkScalar winWidth, SkScalar winHeight) {
 void SkSLSlide::unload() {
     fEffect.reset();
     fInputs.reset();
-    fChildren.reset();
-    fShaders.reset();
+    fChildren.clear();
+    fShaders.clear();
 }
 
 bool SkSLSlide::rebuild() {
     // Some of the standard shadertoy inputs:
-    SkString sksl("uniform float3 iResolution;\n"
-                  "uniform float  iTime;\n"
-                  "uniform float4 iMouse;\n");
+    SkString sksl;
+    // TODO(skbug.com/40042585): This interferes with user-authored #version directives
+    if (fShadertoyUniforms) {
+        sksl = "uniform float3 iResolution;\n"
+               "uniform float  iTime;\n"
+               "uniform float4 iMouse;\n";
+    }
     sksl.append(fSkSL);
 
     // It shouldn't happen, but it's possible to assert in the compiler, especially mid-edit.
@@ -103,7 +129,9 @@ bool SkSLSlide::rebuild() {
     }
 
     if (!effect) {
+#if defined(SK_GANESH)
         Viewer::ShaderErrorHandler()->compileError(sksl.c_str(), errorText.c_str());
+#endif
         return false;
     }
 
@@ -127,8 +155,12 @@ void SkSLSlide::draw(SkCanvas* canvas) {
     // Edit box for shader code
     ImGuiInputTextFlags flags = ImGuiInputTextFlags_CallbackResize;
     ImVec2 boxSize(-1.0f, ImGui::GetTextLineHeight() * 30);
-    if (ImGui::InputTextMultiline("Code", fSkSL.writable_str(), fSkSL.size() + 1, boxSize, flags,
+    if (ImGui::InputTextMultiline("Code", fSkSL.data(), fSkSL.size() + 1, boxSize, flags,
                                   InputTextCallback, &fSkSL)) {
+        fCodeIsDirty = true;
+    }
+
+    if (ImGui::Checkbox("ShaderToy Uniforms (iResolution/iTime/iMouse)", &fShadertoyUniforms)) {
         fCodeIsDirty = true;
     }
 
@@ -159,20 +191,20 @@ void SkSLSlide::draw(SkCanvas* canvas) {
         fMousePos.z = mousePos.x;
         fMousePos.w = mousePos.y;
     }
-    fMousePos.z = abs(fMousePos.z) * (ImGui::IsMouseDown(0)    ? 1 : -1);
-    fMousePos.w = abs(fMousePos.w) * (ImGui::IsMouseClicked(0) ? 1 : -1);
+    fMousePos.z = std::abs(fMousePos.z) * (ImGui::IsMouseDown(0)    ? 1 : -1);
+    fMousePos.w = std::abs(fMousePos.w) * (ImGui::IsMouseClicked(0) ? 1 : -1);
 
-    for (const auto& v : fEffect->uniforms()) {
+    for (const SkRuntimeEffect::Uniform& v : fEffect->uniforms()) {
         char* data = fInputs.get() + v.offset;
-        if (v.name.equals("iResolution")) {
+        if (v.name == "iResolution") {
             memcpy(data, &fResolution, sizeof(fResolution));
             continue;
         }
-        if (v.name.equals("iTime")) {
+        if (v.name == "iTime") {
             memcpy(data, &fSeconds, sizeof(fSeconds));
             continue;
         }
-        if (v.name.equals("iMouse")) {
+        if (v.name == "iMouse") {
             memcpy(data, &fMousePos, sizeof(fMousePos));
             continue;
         }
@@ -184,8 +216,9 @@ void SkSLSlide::draw(SkCanvas* canvas) {
                 int rows = ((int)v.type - (int)SkRuntimeEffect::Uniform::Type::kFloat) + 1;
                 float* f = reinterpret_cast<float*>(data);
                 for (int c = 0; c < v.count; ++c, f += rows) {
-                    SkString name = v.isArray() ? SkStringPrintf("%s[%d]", v.name.c_str(), c)
-                                                : v.name;
+                    SkString name = v.isArray()
+                            ? SkStringPrintf("%.*s[%d]", (int)v.name.size(), v.name.data(), c)
+                            : SkString(v.name);
                     ImGui::PushID(c);
                     ImGui::DragScalarN(name.c_str(), ImGuiDataType_Float, f, rows, 1.0f);
                     ImGui::PopID();
@@ -201,8 +234,8 @@ void SkSLSlide::draw(SkCanvas* canvas) {
                 for (int e = 0; e < v.count; ++e) {
                     for (int c = 0; c < cols; ++c, f += rows) {
                         SkString name = v.isArray()
-                            ? SkStringPrintf("%s[%d][%d]", v.name.c_str(), e, c)
-                            : SkStringPrintf("%s[%d]", v.name.c_str(), c);
+                           ? SkStringPrintf("%.*s[%d][%d]", (int)v.name.size(), v.name.data(), e, c)
+                           : SkStringPrintf("%.*s[%d]", (int)v.name.size(), v.name.data(), c);
                         ImGui::DragScalarN(name.c_str(), ImGuiDataType_Float, f, rows, 1.0f);
                     }
                 }
@@ -215,8 +248,9 @@ void SkSLSlide::draw(SkCanvas* canvas) {
                 int rows = ((int)v.type - (int)SkRuntimeEffect::Uniform::Type::kInt) + 1;
                 int* i = reinterpret_cast<int*>(data);
                 for (int c = 0; c < v.count; ++c, i += rows) {
-                    SkString name = v.isArray() ? SkStringPrintf("%s[%d]", v.name.c_str(), c)
-                                                : v.name;
+                    SkString name = v.isArray()
+                            ? SkStringPrintf("%.*s[%d]", (int)v.name.size(), v.name.data(), c)
+                            : SkString(v.name);
                     ImGui::PushID(c);
                     ImGui::DragScalarN(name.c_str(), ImGuiDataType_S32, i, rows, 1.0f);
                     ImGui::PopID();
@@ -226,14 +260,16 @@ void SkSLSlide::draw(SkCanvas* canvas) {
         }
     }
 
-    for (const auto& c : fEffect->children()) {
-        auto curShader =
-                std::find_if(fShaders.begin(), fShaders.end(), [tgt = fChildren[c.index]](auto p) {
+    for (const SkRuntimeEffect::Child& c : fEffect->children()) {
+        auto curShader = std::find_if(
+                fShaders.begin(),
+                fShaders.end(),
+                [tgt = fChildren[c.index]](const std::pair<const char*, sk_sp<SkShader>>& p) {
                     return p.second == tgt;
                 });
         SkASSERT(curShader != fShaders.end());
 
-        if (ImGui::BeginCombo(c.name.c_str(), curShader->first)) {
+        if (ImGui::BeginCombo(std::string(c.name).c_str(), curShader->first)) {
             for (const auto& namedShader : fShaders) {
                 if (ImGui::Selectable(namedShader.first, curShader->second == namedShader.second)) {
                     fChildren[c.index] = namedShader.second;
@@ -256,15 +292,26 @@ void SkSLSlide::draw(SkCanvas* canvas) {
 
     auto inputs = SkData::MakeWithoutCopy(fInputs.get(), fEffect->uniformSize());
 
+    canvas->save();
+
     sk_sp<SkSL::DebugTrace> debugTrace;
-    auto shader = fEffect->makeShader(std::move(inputs), fChildren.data(), fChildren.count(),
-                                      nullptr, false);
+    auto shader = fEffect->makeShader(std::move(inputs), fChildren.data(), fChildren.size());
     if (writeTrace || writeDump) {
         SkIPoint traceCoord = {fTraceCoord[0], fTraceCoord[1]};
         SkRuntimeEffect::TracedShader traced = SkRuntimeEffect::MakeTraced(std::move(shader),
                                                                            traceCoord);
         shader = std::move(traced.shader);
         debugTrace = std::move(traced.debugTrace);
+
+        // Reduce debug trace delay by clipping to a 4x4 rectangle for this paint, centered on the
+        // pixel to trace. A minor complication is that the canvas might have a transform applied to
+        // it, but we want to clip in device space. This can be worked around by resetting the
+        // canvas matrix temporarily.
+        SkM44 canvasMatrix = canvas->getLocalToDevice();
+        canvas->resetMatrix();
+        auto r = SkRect::MakeXYWH(fTraceCoord[0] - 1, fTraceCoord[1] - 1, 4, 4);
+        canvas->clipRect(r, SkClipOp::kIntersect);
+        canvas->setMatrix(canvasMatrix);
     }
     SkPaint p;
     p.setColor4f(gPaintColor);
@@ -284,7 +331,7 @@ void SkSLSlide::draw(SkCanvas* canvas) {
             canvas->drawRoundRect({ 0, 224, 512, 288 }, 32, 32, p);
             break;
         case kText: {
-            SkFont font;
+            SkFont font = ToolUtils::DefaultFont();
             font.setSize(SkIntToScalar(96));
             canvas->drawSimpleText("Hello World", strlen("Hello World"), SkTextEncoding::kUTF8, 0,
                                    256, font, p);
@@ -292,12 +339,14 @@ void SkSLSlide::draw(SkCanvas* canvas) {
         default: break;
     }
 
+    canvas->restore();
+
     if (debugTrace && writeTrace) {
-        SkFILEWStream traceFile("SkVMDebugTrace.json");
-        debugTrace->writeTrace(&traceFile);
+        SkFILEWStream traceFile("SkSLDebugTrace.json");
+        SkSLTraceUtils::WriteTrace(static_cast<const SkSL::DebugTracePriv&>(*debugTrace), &traceFile);
     }
     if (debugTrace && writeDump) {
-        SkFILEWStream dumpFile("SkVMDebugTrace.dump.txt");
+        SkFILEWStream dumpFile("SkSLDebugTrace.dump.txt");
         debugTrace->dump(&dumpFile);
     }
 }

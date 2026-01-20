@@ -148,7 +148,7 @@ DEF_SIMPLE_GM(cgimage, canvas, 800, 250) {
             { kBGRA_8888_SkColorType, kOpaque_SkAlphaType },
         };
 
-        for (size_t i = 0; i < SK_ARRAY_COUNT(rec); ++i) {
+        for (size_t i = 0; i < std::size(rec); ++i) {
             SkImageInfo info = SkImageInfo::Make(100, 100, rec[i].fCT, rec[i].fAT);
             test_image(canvas, info);
             canvas->translate(info.width() + 10, 0);
@@ -159,7 +159,7 @@ DEF_SIMPLE_GM(cgimage, canvas, 800, 250) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// https://bug.skia.org/3716
+// skbug.com/40034846
 class ClipCubicGM : public skiagm::GM {
     const SkScalar W = 100;
     const SkScalar H = 240;
@@ -177,13 +177,9 @@ public:
     }
 
 protected:
-    SkString onShortName() override {
-        return SkString("clipcubic");
-    }
+    SkString getName() const override { return SkString("clipcubic"); }
 
-    SkISize onISize() override {
-        return SkISize::Make(400, 410);
-    }
+    SkISize getISize() override { return SkISize::Make(400, 410); }
 
     void doDraw(SkCanvas* canvas, const SkPath& path) {
         SkPaint paint;

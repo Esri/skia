@@ -7,8 +7,18 @@
 
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkPathTypes.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/base/SkTo.h"
 #include "tests/Test.h"
+
+#include <array>
+#include <cstddef>
 
 #define DIMENSION   32
 
@@ -49,7 +59,7 @@ static void drawAndTest(skiatest::Reporter* reporter, const SkPath& path,
         ERRORF(reporter, "%s style[%d] cap[%d] join[%d] antialias[%d]"
                " filltype[%d] ptcount[%d]", str, paint.getStyle(),
                paint.getStrokeCap(), paint.getStrokeJoin(),
-               paint.isAntiAlias(), path.getFillType(), path.countPoints());
+               paint.isAntiAlias(), (int)path.getFillType(), path.countPoints());
 // uncomment this if you want to step in to see the failure
 //        canvas.drawPath(path, p);
     }
@@ -77,9 +87,9 @@ static void iter_paint(skiatest::Reporter* reporter, const SkPath& path, bool sh
         SkPaint::kStroke_Style,
         SkPaint::kStrokeAndFill_Style
     };
-    for (size_t cap = 0; cap < SK_ARRAY_COUNT(gCaps); ++cap) {
-        for (size_t join = 0; join < SK_ARRAY_COUNT(gJoins); ++join) {
-            for (size_t style = 0; style < SK_ARRAY_COUNT(gStyles); ++style) {
+    for (size_t cap = 0; cap < std::size(gCaps); ++cap) {
+        for (size_t join = 0; join < std::size(gJoins); ++join) {
+            for (size_t style = 0; style < std::size(gStyles); ++style) {
                 if (drawCaps && SkPaint::kButt_Cap != gCaps[cap]
                         && SkPaint::kFill_Style != gStyles[style]) {
                     continue;
@@ -104,13 +114,13 @@ static void iter_paint(skiatest::Reporter* reporter, const SkPath& path, bool sh
 #define CX  (SkIntToScalar(DIMENSION) / 2)
 #define CY  (SkIntToScalar(DIMENSION) / 2)
 
-static void make_empty(SkPath*) {}
-static void make_M(SkPath* path) { path->moveTo(CX, CY); }
-static void make_MM(SkPath* path) { path->moveTo(CX, CY).moveTo(CX, CY); }
-static void make_MZM(SkPath* path) { path->moveTo(CX, CY).close().moveTo(CX, CY); }
-static void make_L(SkPath* path) { path->moveTo(CX, CY).lineTo(CX, CY); }
-static void make_Q(SkPath* path) { path->moveTo(CX, CY).quadTo(CX, CY, CX, CY); }
-static void make_C(SkPath* path) { path->moveTo(CX, CY).cubicTo(CX, CY, CX, CY, CX, CY); }
+static void make_empty(SkPathBuilder*) {}
+static void make_M(SkPathBuilder* bu) { bu->moveTo(CX, CY); }
+static void make_MM(SkPathBuilder* bu) { bu->moveTo(CX, CY).moveTo(CX, CY); }
+static void make_MZM(SkPathBuilder* bu) { bu->moveTo(CX, CY).close().moveTo(CX, CY); }
+static void make_L(SkPathBuilder* bu) { bu->moveTo(CX, CY).lineTo(CX, CY); }
+static void make_Q(SkPathBuilder* bu) { bu->moveTo(CX, CY).quadTo(CX, CY, CX, CY); }
+static void make_C(SkPathBuilder* bu) { bu->moveTo(CX, CY).cubicTo(CX, CY, CX, CY, CX, CY); }
 
 /*  Two invariants are tested: How does an empty/degenerate path draw?
  *  - if the path is drawn inverse, it should draw everywhere
@@ -123,7 +133,7 @@ static void make_C(SkPath* path) { path->moveTo(CX, CY).cubicTo(CX, CY, CX, CY, 
  *  - path stroke variants (e.g. caps, joins, width)
  */
 static void test_emptydrawing(skiatest::Reporter* reporter) {
-    static void (*gMakeProc[])(SkPath*) = {
+    static void (*gMakeProc[])(SkPathBuilder*) = {
         make_empty, make_M, make_MM, make_MZM, make_L, make_Q, make_C
     };
     static SkPathFillType gFills[] = {
@@ -133,20 +143,21 @@ static void test_emptydrawing(skiatest::Reporter* reporter) {
         SkPathFillType::kInverseEvenOdd
     };
     for (int doClose = 0; doClose < 2; ++doClose) {
-        for  (size_t i = 0; i < SK_ARRAY_COUNT(gMakeProc); ++i) {
-            SkPath path;
-            gMakeProc[i](&path);
+        for  (size_t i = 0; i < std::size(gMakeProc); ++i) {
+            SkPathBuilder builder;
+            gMakeProc[i](&builder);
             if (doClose) {
-                path.close();
+                builder.close();
             }
             /* zero length segments and close following moves draw round and square caps */
             bool allowCaps = make_L == gMakeProc[i] || make_Q == gMakeProc[i]
-                    || make_C == gMakeProc[i] || make_MZM == gMakeProc[i];
+                          || make_C == gMakeProc[i] || make_MZM == gMakeProc[i];
             allowCaps |= SkToBool(doClose);
-            for (size_t fill = 0; fill < SK_ARRAY_COUNT(gFills); ++fill) {
-                path.setFillType(gFills[fill]);
-                bool shouldDraw = path.isInverseFillType();
-                iter_paint(reporter, path, shouldDraw, allowCaps ? kDrawCaps : kDontDrawCaps);
+            for (size_t fill = 0; fill < std::size(gFills); ++fill) {
+                builder.setFillType(gFills[fill]);
+                bool shouldDraw = builder.isInverseFillType();
+                iter_paint(reporter, builder.detach(), shouldDraw,
+                           allowCaps ? kDrawCaps : kDontDrawCaps);
             }
         }
     }

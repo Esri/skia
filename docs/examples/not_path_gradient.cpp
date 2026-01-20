@@ -4,14 +4,14 @@
 REG_FIDDLE(not_path_gradient, 256, 256, false, 0) {
 SkPath star() {
     const SkScalar R = 60.0f, C = 128.0f;
-    SkPath path;
+    SkPathBuilder path;
     path.moveTo(C + R, C);
     for (int i = 1; i < 15; ++i) {
         SkScalar a = 0.44879895f * i;
         SkScalar r = R + R * (i % 2);
         path.lineTo(C + r * cos(a), C + r * sin(a));
     }
-    return path;
+    return path.detach();
 }
 void draw(SkCanvas* canvas) {
     SkPaint paint;
@@ -20,8 +20,8 @@ void draw(SkCanvas* canvas) {
     paint.setStyle(SkPaint::kStroke_Style);
     paint.setStrokeWidth(10);
     SkColor colors[2] = {SkColorSetRGB(0xEA, 0xD2, 0xAC), SkColorSetRGB(0x42, 0x81, 0xA4)};
-    paint.setShader(
-            SkGradientShader::MakeLinear(points, colors, NULL, 2, SkTileMode::kClamp, 0, NULL));
+    paint.setShader(SkGradientShader::MakeLinear(
+            points, colors, nullptr, 2, SkTileMode::kClamp, 0, nullptr));
     paint.setAntiAlias(true);
     canvas->clear(SK_ColorWHITE);
     SkPath path(star());

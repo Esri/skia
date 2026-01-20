@@ -5,14 +5,32 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkColor.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPath.h"
-#include "include/private/SkTDArray.h"
-#include "include/private/SkTo.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/base/SkMath.h"
+#include "include/private/base/SkPoint_impl.h"
+#include "include/private/base/SkTDArray.h"
+#include "include/private/base/SkTFitsIn.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkSafeMath.h"
+#include "src/base/SkTSort.h"
 #include "src/core/SkBlitter.h"
+#include "src/core/SkPathPriv.h"
 #include "src/core/SkRegionPriv.h"
-#include "src/core/SkSafeMath.h"
 #include "src/core/SkScan.h"
-#include "src/core/SkTSort.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <iterator>
 
 // The rgnbuilder caller *seems* to pass short counts, possible often seens early failure, so
 // we may not want to promote this to a "std" routine just yet.
@@ -54,7 +72,7 @@ public:
 #ifdef SK_DEBUG
     void dump() const {
         SkDebugf("SkRgnBuilder: Top = %d\n", fTop);
-        const Scanline* line = (Scanline*)fStorage;
+        Scanline* line = (Scanline*)fStorage;
         while (line < fCurrScanline) {
             SkDebugf("SkRgnBuilder::Scanline: LastY=%d, fXCount=%d", line->fLastY, line->fXCount);
             for (int i = 0; i < line->fXCount; i++) {
@@ -83,8 +101,8 @@ private:
         SkRegion::RunType fLastY;
         SkRegion::RunType fXCount;
 
-        SkRegion::RunType* firstX() const { return (SkRegion::RunType*)(this + 1); }
-        Scanline* nextScanline() const {
+        SkRegion::RunType* firstX() { return (SkRegion::RunType*)(this + 1); }
+        Scanline* nextScanline() {
             // add final +1 for the x-sentinel
             return (Scanline*)((SkRegion::RunType*)(this + 1) + fXCount + 1);
         }
@@ -214,7 +232,7 @@ void SkRgnBuilder::copyToRect(SkIRect* r) const {
     // A rect's scanline is [bottom intervals left right sentinel] == 5
     SkASSERT((const SkRegion::RunType*)fCurrScanline - fStorage == 5);
 
-    const Scanline* line = (const Scanline*)fStorage;
+    Scanline* line = (Scanline*)fStorage;
     SkASSERT(line->fXCount == 2);
 
     r->setLTRB(line->firstX()[0], fTop, line->firstX()[1], line->fLastY + 1);
@@ -224,7 +242,7 @@ void SkRgnBuilder::copyToRgn(SkRegion::RunType runs[]) const {
     SkASSERT(fCurrScanline != nullptr);
     SkASSERT((const SkRegion::RunType*)fCurrScanline - fStorage > 4);
 
-    const Scanline* line = (const Scanline*)fStorage;
+    Scanline* line = (Scanline*)fStorage;
     const Scanline* stop = fCurrScanline;
 
     *runs++ = fTop;
@@ -243,7 +261,7 @@ void SkRgnBuilder::copyToRgn(SkRegion::RunType runs[]) const {
     *runs = SkRegion_kRunTypeSentinel;
 }
 
-static unsigned verb_to_initial_last_index(unsigned verb) {
+static unsigned verb_to_initial_last_index(SkPathVerb verb) {
     static const uint8_t gPathVerbToInitialLastIndex[] = {
         0,  //  kMove_Verb
         1,  //  kLine_Verb
@@ -251,13 +269,13 @@ static unsigned verb_to_initial_last_index(unsigned verb) {
         2,  //  kConic_Verb
         3,  //  kCubic_Verb
         0,  //  kClose_Verb
-        0   //  kDone_Verb
     };
-    SkASSERT((unsigned)verb < SK_ARRAY_COUNT(gPathVerbToInitialLastIndex));
-    return gPathVerbToInitialLastIndex[verb];
+    const unsigned index = static_cast<unsigned>(verb);
+    SkASSERT(index < std::size(gPathVerbToInitialLastIndex));
+    return gPathVerbToInitialLastIndex[index];
 }
 
-static unsigned verb_to_max_edges(unsigned verb) {
+static unsigned verb_to_max_edges(SkPathVerb verb) {
     static const uint8_t gPathVerbToMaxEdges[] = {
         0,  //  kMove_Verb
         1,  //  kLine_Verb
@@ -265,23 +283,23 @@ static unsigned verb_to_max_edges(unsigned verb) {
         2,  //  kConic_VerbB
         3,  //  kCubic_Verb
         0,  //  kClose_Verb
-        0   //  kDone_Verb
     };
-    SkASSERT((unsigned)verb < SK_ARRAY_COUNT(gPathVerbToMaxEdges));
-    return gPathVerbToMaxEdges[verb];
+    const unsigned index = static_cast<unsigned>(verb);
+    SkASSERT(index < std::size(gPathVerbToMaxEdges));
+    return gPathVerbToMaxEdges[index];
 }
 
 // If returns 0, ignore itop and ibot
 static int count_path_runtype_values(const SkPath& path, int* itop, int* ibot) {
-    SkPath::Iter    iter(path, true);
-    SkPoint         pts[4];
-    SkPath::Verb    verb;
-
     int maxEdges = 0;
     SkScalar    top = SkIntToScalar(SK_MaxS16);
     SkScalar    bot = SkIntToScalar(SK_MinS16);
 
-    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
+    SkPath::Iter iter(path, true);
+    while (auto rec = iter.next()) {
+        const SkPathVerb verb = rec->fVerb;
+        const SkSpan<const SkPoint> pts = rec->fPoints;
+
         maxEdges += verb_to_max_edges(verb);
 
         int lastIndex = verb_to_initial_last_index(verb);
@@ -293,7 +311,7 @@ static int count_path_runtype_values(const SkPath& path, int* itop, int* ibot) {
                     bot = pts[i].fY;
                 }
             }
-        } else if (SkPath::kMove_Verb == verb) {
+        } else if (SkPathVerb::kMove == verb) {
             if (top > pts[0].fY) {
                 top = pts[0].fY;
             } else if (bot < pts[0].fY) {
@@ -322,9 +340,11 @@ static bool check_inverse_on_empty_return(SkRegion* dst, const SkPath& path, con
 bool SkRegion::setPath(const SkPath& path, const SkRegion& clip) {
     SkDEBUGCODE(SkRegionPriv::Validate(*this));
 
-    if (clip.isEmpty() || !path.isFinite() || path.isEmpty()) {
-        // This treats non-finite paths as empty as well, so this returns empty or 'clip' if
-        // it's inverse-filled. If clip is also empty, path's fill type doesn't really matter
+    const auto raw = SkPathPriv::Raw(path, SkResolveConvexity::kYes);
+
+    if (clip.isEmpty() || !raw.has_value() || path.isEmpty()) {
+        // This treats non-finite paths (no raw) as empty as well, so this returns empty or 'clip'
+        // if it's inverse-filled. If clip is also empty, path's fill type doesn't really matter
         // and this region ends up empty.
         return check_inverse_on_empty_return(this, path, clip);
     }
@@ -332,10 +352,51 @@ bool SkRegion::setPath(const SkPath& path, const SkRegion& clip) {
     // Our builder is very fragile, and can't be called with spans/rects out of Y->X order.
     // To ensure this, we only "fill" clipped to a rect (the clip's bounds), and if the
     // clip is more complex than that, we just post-intersect the result with the clip.
+    const SkIRect clipBounds = clip.getBounds();
     if (clip.isComplex()) {
-        if (!this->setPath(path, SkRegion(clip.getBounds()))) {
+        if (!this->setPath(path, SkRegion(clipBounds))) {
             return false;
         }
+        return this->op(clip, kIntersect_Op);
+    }
+
+    // SkScan::FillPath has limits on the coordinate range of the clipping SkRegion. If it's too
+    // big, tile the clip bounds and union the pieces back together.
+    if (SkScan::PathRequiresTiling(clipBounds)) {
+        static constexpr int kTileSize = 32767 >> 1; // Limit so coords can fit into SkFixed (16.16)
+        const SkIRect pathBounds = path.getBounds().roundOut();
+
+        this->setEmpty();
+
+        // Note: With large integers some intermediate calculations can overflow, but the
+        // end results will still be in integer range. Using int64_t for the intermediate
+        // values will handle this situation.
+        for (int64_t top = clipBounds.fTop; top < clipBounds.fBottom; top += kTileSize) {
+            int64_t bot = std::min(top + kTileSize, (int64_t)clipBounds.fBottom);
+            for (int64_t left = clipBounds.fLeft; left < clipBounds.fRight; left += kTileSize) {
+                int64_t right = std::min(left + kTileSize, (int64_t)clipBounds.fRight);
+
+                SkIRect tileClipBounds = {(int)left, (int)top, (int)right, (int)bot};
+                if (!SkIRect::Intersects(pathBounds, tileClipBounds)) {
+                    continue;
+                }
+
+                // Shift coordinates so the top left is (0,0) during scan conversion and then
+                // translate the SkRegion afterwards.
+                tileClipBounds.offset(-left, -top);
+                SkASSERT(!SkScan::PathRequiresTiling(tileClipBounds));
+                SkRegion tile;
+                if (auto newpath = path.tryMakeOffset(-left, -top)) {
+                    tile.setPath(*newpath, SkRegion(tileClipBounds));
+                    tile.translate(left, top);
+                    this->op(tile, kUnion_Op);
+                } else {
+                    return false;
+                }
+            }
+        }
+        // During tiling we only applied the bounds of the tile, now that we have a full SkRegion,
+        // apply the original clip.
         return this->op(clip, kIntersect_Op);
     }
 
@@ -364,7 +425,7 @@ bool SkRegion::setPath(const SkPath& path, const SkRegion& clip) {
         return this->setEmpty();
     }
 
-    SkScan::FillPath(path, clip, &builder);
+    SkScan::FillPath(*raw, clip, &builder);
     builder.done();
 
     int count = builder.computeRunCount();
@@ -458,7 +519,7 @@ static void find_link(Edge* base, Edge* stop) {
     base->fFlags = Edge::kCompleteLink;
 }
 
-static int extract_path(Edge* edge, Edge* stop, SkPath* path) {
+static int extract_path(Edge* edge, Edge* stop, SkPathBuilder* builder) {
     while (0 == edge->fFlags) {
         edge++; // skip over "used" edges
     }
@@ -471,20 +532,20 @@ static int extract_path(Edge* edge, Edge* stop, SkPath* path) {
     SkASSERT(edge != base);
 
     int count = 1;
-    path->moveTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY0));
+    builder->moveTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY0));
     prev->fFlags = 0;
     do {
         if (prev->fX != edge->fX || prev->fY1 != edge->fY0) { // skip collinear
-            path->lineTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY1));    // V
-            path->lineTo(SkIntToScalar(edge->fX), SkIntToScalar(edge->fY0));    // H
+            builder->lineTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY1));    // V
+            builder->lineTo(SkIntToScalar(edge->fX), SkIntToScalar(edge->fY0));    // H
         }
         prev = edge;
         edge = edge->fNext;
         count += 1;
         prev->fFlags = 0;
     } while (edge != base);
-    path->lineTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY1));    // V
-    path->close();
+    builder->lineTo(SkIntToScalar(prev->fX), SkIntToScalar(prev->fY1));    // V
+    builder->close();
     return count;
 }
 
@@ -494,10 +555,10 @@ struct EdgeLT {
     }
 };
 
-bool SkRegion::getBoundaryPath(SkPath* path) const {
+bool SkRegion::addBoundaryPath(SkPathBuilder* builder) const {
     // path could safely be nullptr if we're empty, but the caller shouldn't
     // *know* that
-    SkASSERT(path);
+    SkASSERT(builder);
 
     if (this->isEmpty()) {
         return false;
@@ -508,7 +569,7 @@ bool SkRegion::getBoundaryPath(SkPath* path) const {
     if (this->isRect()) {
         SkRect  r;
         r.set(bounds);      // this converts the ints to scalars
-        path->addRect(r);
+        builder->addRect(r);
         return true;
     }
 
@@ -521,7 +582,7 @@ bool SkRegion::getBoundaryPath(SkPath* path) const {
         edge[1].set(r.fRight, r.fTop, r.fBottom);
     }
 
-    int count = edges.count();
+    int count = edges.size();
     Edge* start = edges.begin();
     Edge* stop = start + count;
     SkTQSort<Edge>(start, stop, EdgeLT());
@@ -538,11 +599,27 @@ bool SkRegion::getBoundaryPath(SkPath* path) const {
     }
 #endif
 
-    path->incReserve(count << 1);
+    builder->incReserve(count << 1);
     do {
         SkASSERT(count > 1);
-        count -= extract_path(start, stop, path);
+        count -= extract_path(start, stop, builder);
     } while (count > 0);
 
     return true;
 }
+
+SkPath SkRegion::getBoundaryPath() const {
+    SkPathBuilder builder;
+    (void)this->addBoundaryPath(&builder);
+    return builder.detach();
+}
+
+#ifndef SK_HIDE_PATH_EDIT_METHODS
+bool SkRegion::getBoundaryPath(SkPath* path) const {
+    if (this->isEmpty()) {
+        return false;
+    }
+    path->addPath(this->getBoundaryPath());
+    return true;
+}
+#endif

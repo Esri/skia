@@ -5,12 +5,13 @@
  * found in the LICENSE file.
  */
 
+#include "src/core/SkDrawShadowInfo.h"
+
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkRect.h"
-#include "include/private/SkShadowFlags.h"
-#include "src/core/SkDrawShadowInfo.h"
-#include "src/utils/SkPolyUtils.h"
+#include "include/private/base/SkTo.h"
+#include "include/utils/SkShadowUtils.h"
 
 namespace SkDrawShadowMetrics {
 
@@ -50,10 +51,7 @@ bool GetSpotShadowTransform(const SkPoint3& lightPos, SkScalar lightRadius,
         // get rotated quad in 3D
         SkPoint pts[4];
         ctm.mapRectToQuad(pts, pathBounds);
-        // No shadows for bowties or other degenerate cases
-        if (!SkIsConvexPolygon(pts, 4)) {
-            return false;
-        }
+
         SkPoint3 pts3D[4];
         SkScalar z = heightFunc(pathBounds.fLeft, pathBounds.fTop);
         pts3D[0].set(pts[0].fX, pts[0].fY, z);
@@ -155,8 +153,7 @@ void GetLocalBounds(const SkPath& path, const SkDrawShadowRec& rec, const SkMatr
                                                       rec.fLightPos.fZ, rec.fLightRadius,
                                                       &spotBlur, &spotScale, &spotOffset);
         } else {
-            SkPoint devLightPos = SkPoint::Make(rec.fLightPos.fX, rec.fLightPos.fY);
-            ctm.mapPoints(&devLightPos, 1);
+            SkPoint devLightPos = ctm.mapPoint({rec.fLightPos.fX, rec.fLightPos.fY});
             SkDrawShadowMetrics::GetSpotParams(occluderZ, devLightPos.fX, devLightPos.fY,
                                                rec.fLightPos.fZ, rec.fLightRadius,
                                                &spotBlur, &spotScale, &spotOffset);
@@ -174,9 +171,8 @@ void GetLocalBounds(const SkPath& path, const SkDrawShadowRec& rec, const SkMatr
                                                       rec.fLightPos.fZ, rec.fLightRadius,
                                                       &spotBlur, &spotScale, &spotOffset);
             // light dir is in device space, so need to map spot offset back into local space
-            SkMatrix inverse;
-            if (ctm.invert(&inverse)) {
-                inverse.mapVectors(&spotOffset, 1);
+            if (auto inverse = ctm.invert()) {
+                spotOffset = inverse->mapVector(spotOffset);
             }
         } else {
             SkDrawShadowMetrics::GetSpotParams(occluderZ, rec.fLightPos.fX, rec.fLightPos.fY,
@@ -207,9 +203,8 @@ void GetLocalBounds(const SkPath& path, const SkDrawShadowRec& rec, const SkMatr
     // if perspective, transform back to src space
     if (ctm.hasPerspective()) {
         // TODO: create tighter mapping from dev rect back to src rect
-        SkMatrix inverse;
-        if (ctm.invert(&inverse)) {
-            inverse.mapRect(bounds);
+        if (auto inverse = ctm.invert()) {
+            inverse->mapRect(bounds);
         }
     }
 }

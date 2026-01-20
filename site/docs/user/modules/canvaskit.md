@@ -63,7 +63,7 @@ Skia's [Lottie animation](https://skia.org/docs/user/modules/skottie) support.
   <figure>
     <canvas id=shader1 width=512 height=512></canvas>
     <figcaption>
-      <a href="https://jsfiddle.skia.org/canvaskit/b382d3b660c4f314eb6a6eae9c0f1e0aadc95c0a2747b707e0dbe3f65a8b0a14"
+      <a href="https://jsfiddle.skia.org/canvaskit/ac0574825f9e517f2dfa8e822126ee75b005e8156c3de4a95d4ffd17ab6ca57b"
           target=_blank rel=noopener>
         Shader JSFiddle</a>
     </figcaption>
@@ -71,7 +71,7 @@ Skia's [Lottie animation](https://skia.org/docs/user/modules/skottie) support.
   <figure>
     <canvas id=camera3d width=400 height=400></canvas>
     <figcaption>
-      <a href="https://jsfiddle.skia.org/canvaskit/b0b90e29f25f41af15249831d9a5cb5a3b8126ca2c2f0b9ad0e9193d1bcf95e9"
+      <a href="https://jsfiddle.skia.org/canvaskit/289946b783390c3242cb5cc117d7bcaf2bcb610bf3d1e67a1dd9c46c1e66b968"
           target=_blank rel=noopener>
         3D Cube JSFiddle</a>
     </figcaption>
@@ -120,12 +120,9 @@ Skia's [Lottie animation](https://skia.org/docs/user/modules/skottie) support.
   // Tries to load the WASM version if supported, shows error otherwise
   let s = document.createElement('script');
   let locate_file = '';
-  // Hey, if you are looking at this code for an example of how to do it yourself, please use
-  // an actual CDN, such as https://unpkg.com/canvaskit-wasm - it will have better reliability
-  // and niceties like brotli compression.
   if (window.WebAssembly && typeof window.WebAssembly.compile === 'function') {
     console.log('WebAssembly is supported!');
-    locate_file = 'https://particles.skia.org/dist/';
+    locate_file = 'https://unpkg.com/canvaskit-wasm@0.38.0/bin/full/';
   } else {
     console.log('WebAssembly is not supported (yet) on this browser.');
     document.getElementById('demo').innerHTML = "<div>WASM not supported by your browser. Try a recent version of Chrome, Firefox, Edge, or Safari.</div>";
@@ -157,36 +154,36 @@ Skia's [Lottie animation](https://skia.org/docs/user/modules/skottie) support.
     ShaderExample1(CanvasKit);
   });
 
-  fetch('https://storage.googleapis.com/skia-cdn/misc/lego_loader.json').then((resp) => {
+  fetch('https://cdn.skia.org/misc/lego_loader.json').then((resp) => {
     resp.text().then((str) => {
       legoJSON = str;
       SkottieExample(CanvasKit, 'sk_legos', legoJSON, [-183, -100, 483, 400]);
     });
   });
 
-  fetch('https://storage.googleapis.com/skia-cdn/misc/drinks.json').then((resp) => {
+  fetch('https://cdn.skia.org/misc/drinks.json').then((resp) => {
     resp.text().then((str) => {
       drinksJSON = str;
       SkottieExample(CanvasKit, 'sk_drinks', drinksJSON, fullBounds);
     });
   });
 
-  fetch('https://storage.googleapis.com/skia-cdn/misc/confetti.json').then((resp) => {
+  fetch('https://cdn.skia.org/misc/confetti.json').then((resp) => {
     resp.text().then((str) => {
       confettiJSON = str;
       SkottieExample(CanvasKit, 'sk_party', confettiJSON, fullBounds);
     });
   });
 
-  fetch('https://storage.googleapis.com/skia-cdn/misc/onboarding.json').then((resp) => {
+  fetch('https://cdn.skia.org/misc/onboarding.json').then((resp) => {
     resp.text().then((str) => {
       onboardingJSON = str;
       SkottieExample(CanvasKit, 'sk_onboarding', onboardingJSON, fullBounds);
     });
   });
 
-  const loadBrickTex = fetch('https://storage.googleapis.com/skia-cdn/misc/brickwork-texture.jpg').then((response) => response.arrayBuffer());
-  const loadBrickBump = fetch('https://storage.googleapis.com/skia-cdn/misc/brickwork_normal-map.jpg').then((response) => response.arrayBuffer());
+  const loadBrickTex = fetch('https://cdn.skia.org/misc/brickwork-texture.jpg').then((response) => response.arrayBuffer());
+  const loadBrickBump = fetch('https://cdn.skia.org/misc/brickwork_normal-map.jpg').then((response) => response.arrayBuffer());
   Promise.all([ckLoaded, loadBrickTex, loadBrickBump]).then((results) => {Camera3D(...results)});
 
   function preventScrolling(canvas) {
@@ -327,14 +324,14 @@ Skia's [Lottie animation](https://skia.org/docs/user/modules/skottie) support.
       return;
     }
     let robotoData = null;
-    fetch('https://storage.googleapis.com/skia-cdn/google-web-fonts/Roboto-Regular.ttf').then((resp) => {
+    fetch('https://cdn.skia.org/google-web-fonts/Roboto-Regular.ttf').then((resp) => {
       resp.arrayBuffer().then((buffer) => {
         robotoData = buffer;
       });
     });
 
     let emojiData = null;
-    fetch('https://storage.googleapis.com/skia-cdn/misc/NotoColorEmoji.ttf').then((resp) => {
+    fetch('https://cdn.skia.org/misc/NotoColorEmoji.ttf').then((resp) => {
       resp.arrayBuffer().then((buffer) => {
         emojiData = buffer;
       });
@@ -479,8 +476,7 @@ half4 main(float2 p) {
         Math.sin(Date.now() / 2000) / 5,
         256, 256,
         1, 0, 0, 1,
-        0, 1, 0, 1],
-        true/*=opaque*/);
+        0, 1, 0, 1]);
 
       paint.setShader(shader);
       canvas.drawRect(CanvasKit.LTRBRect(0, 0, 512, 512), paint);
@@ -660,7 +656,7 @@ half4 main(float2 p) {
       const uniforms = [...lightWorldPos, ...localToWorld, ...normalMatrix(localToWorld)];
       const paint = new CanvasKit.Paint();
       paint.setAntiAlias(true);
-      const shader = fact.makeShaderWithChildren(uniforms, true /*=opaque*/, children);
+      const shader = fact.makeShaderWithChildren(uniforms, children);
       paint.setShader(shader);
       canvas.drawRRect(rr, paint);
     }

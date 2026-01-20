@@ -18,9 +18,8 @@
 #include "include/core/SkTypes.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/utils/SkParsePath.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkOSFile.h"
-#include "tools/random_parse_path.h"
 
 #include <stdio.h>
 
@@ -103,10 +102,10 @@ DEF_SIMPLE_GM(arcto, canvas, 500, 600) {
     };
     int cIndex = 0;
     for (const char* arcstr : arcstrs) {
-        SkPath path;
-        SkParsePath::FromSVGString(arcstr, &path);
-        paint.setColor(colors[cIndex++]);
-        canvas->drawPath(path, paint);
+        if (auto path = SkParsePath::FromSVGString(arcstr)) {
+            paint.setColor(colors[cIndex++]);
+            canvas->drawPath(*path, paint);
+        }
     }
 
     // test that zero length arcs still draw round cap
@@ -124,6 +123,94 @@ DEF_SIMPLE_GM(arcto, canvas, 500, 600) {
 enum {
     kParsePathTestDimension = 500
 };
+
+const struct Legal {
+    char fSymbol;
+    int fScalars;
+} gLegal[] = {
+    { 'M', 2 },
+    { 'H', 1 },
+    { 'V', 1 },
+    { 'L', 2 },
+    { 'Q', 4 },
+    { 'T', 2 },
+    { 'C', 6 },
+    { 'S', 4 },
+    { 'A', 4 },
+    { 'Z', 0 },
+};
+
+bool gEasy = false;  // set to true while debugging to suppress unusual whitespace
+
+// mostly do nothing, then bias towards spaces
+const char gWhiteSpace[] = { 0, 0, 0, 0, 0, 0, 0, 0, ' ', ' ', ' ', ' ', 0x09, 0x0D, 0x0A };
+
+static void add_white(SkRandom* rand, SkString* atom) {
+    if (gEasy) {
+        atom->append(" ");
+        return;
+    }
+    int reps = rand->nextRangeU(0, 2);
+    for (int rep = 0; rep < reps; ++rep) {
+        int index = rand->nextRangeU(0, (int) std::size(gWhiteSpace) - 1);
+        if (gWhiteSpace[index]) {
+            atom->append(&gWhiteSpace[index], 1);
+        }
+    }
+}
+
+static void add_comma(SkRandom* rand, SkString* atom) {
+    if (gEasy) {
+        atom->append(",");
+        return;
+    }
+    size_t count = atom->size();
+    add_white(rand, atom);
+    if (rand->nextBool()) {
+        atom->append(",");
+    }
+    do {
+        add_white(rand, atom);
+    } while (count == atom->size());
+}
+
+static void add_some_white(SkRandom* rand, SkString* atom) {
+    size_t count = atom->size();
+    do {
+        add_white(rand, atom);
+    } while (count == atom->size());
+}
+
+static SkString make_random_svg_path(SkRandom* rand) {
+    SkString atom;
+    int legalIndex = rand->nextRangeU(0, (int) std::size(gLegal) - 1);
+    const Legal& legal = gLegal[legalIndex];
+    gEasy ? atom.append("\n") : add_white(rand, &atom);
+    char symbol = legal.fSymbol | (rand->nextBool() ? 0x20 : 0);
+    atom.append(&symbol, 1);
+    int reps = rand->nextRangeU(1, 3);
+    for (int rep = 0; rep < reps; ++rep) {
+        for (int index = 0; index < legal.fScalars; ++index) {
+            SkScalar coord = rand->nextRangeF(0, 100);
+            add_white(rand, &atom);
+            atom.appendScalar(coord);
+            if (rep < reps - 1 && index < legal.fScalars - 1) {
+                add_comma(rand, &atom);
+            } else {
+                add_some_white(rand, &atom);
+            }
+            if ('A' == legal.fSymbol && 1 == index) {
+                atom.appendScalar(rand->nextRangeF(-720, 720));
+                add_comma(rand, &atom);
+                atom.appendU32(rand->nextRangeU(0, 1));
+                add_comma(rand, &atom);
+                atom.appendU32(rand->nextRangeU(0, 1));
+                add_comma(rand, &atom);
+            }
+        }
+    }
+    return atom;
+}
 
 DEF_SIMPLE_GM(parsedpaths, canvas, kParsePathTestDimension, kParsePathTestDimension) {
     SkString str;
@@ -153,19 +240,19 @@ DEF_SIMPLE_GM(parsedpaths, canvas, kParsePathTestDimension, kParsePathTestDimens
             }
             int count = 3;
             do {
-                SkPath path;
                 SkString spec;
                 uint32_t y = rand.nextRangeU(30, 70);
                 uint32_t x = rand.nextRangeU(30, 70);
-                spec.printf("M %d,%d\n", x, y);
+                spec.printf("M %u,%u\n", x, y);
                 for (uint32_t i = rand.nextRangeU(0, 10); i--; ) {
-                    spec.append(MakeRandomParsePathPiece(&rand));
+                    spec.append(make_random_svg_path(&rand));
                 }
-                SkAssertResult(SkParsePath::FromSVGString(spec.c_str(), &path));
+                auto path = SkParsePath::FromSVGString(spec.c_str());
+                SkAssertResult(path.has_value());
                 paint.setColor(rand.nextU());
                 canvas->save();
                 canvas->clipRect(SkRect::MakeIWH(100, 100));
-                canvas->drawPath(path, paint);
+                canvas->drawPath(*path, paint);
                 canvas->restore();
                 if (GENERATE_SVG_REFERENCE) {
                     str.printf("<path d='\n");
@@ -220,12 +307,10 @@ DEF_SIMPLE_GM(bug583299, canvas, 300, 300) {
   p.setAntiAlias(true);
   p.setColor(0xFF008200);
   p.setStrokeCap(SkPaint::kSquare_Cap);
-  SkPath path;
-  SkParsePath::FromSVGString(d, &path);
+  SkPath path = SkParsePath::FromSVGString(d).value_or(SkPath());
   SkPathMeasure meas(path, false);
   SkScalar length = meas.getLength();
   SkScalar intervals[] = {0, length };
-  int intervalCount = (int) SK_ARRAY_COUNT(intervals);
-  p.setPathEffect(SkDashPathEffect::Make(intervals, intervalCount, 0));
+  p.setPathEffect(SkDashPathEffect::Make(intervals, 0));
   canvas->drawPath(path, p);
 }

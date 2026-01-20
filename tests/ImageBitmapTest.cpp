@@ -5,12 +5,14 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkBitmap.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
 #include "tests/Test.h"
 
-#include "include/core/SkBitmap.h"
-#include "include/core/SkImage.h"
-
-// https://bug.skia.org/5096
+// skbug.com/40036261
 // Test that when we make an image from a subset of a bitmap, that it
 // has a diff (ID, dimensions) from an image made from the entire
 // bitmap or a different subset of the image.

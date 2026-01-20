@@ -1,47 +1,124 @@
-load("//bazel:macros.bzl", "generated_cc_atom")
+load("//bazel:skia_rules.bzl", "generate_cpp_files_for_headers", "skia_filegroup")
 
-generated_cc_atom(
-    name = "SkAndroidCodec_hdr",
-    hdrs = ["SkAndroidCodec.h"],
-    visibility = ["//:__subpackages__"],
-    deps = [
-        ":SkCodec_hdr",
-        "//include/core:SkEncodedImageFormat_hdr",
-        "//include/core:SkStream_hdr",
-        "//include/core:SkTypes_hdr",
-    ],
+package(
+    default_applicable_licenses = ["//:license"],
 )
 
-generated_cc_atom(
-    name = "SkCodecAnimation_hdr",
-    hdrs = ["SkCodecAnimation.h"],
-    visibility = ["//:__subpackages__"],
+licenses(["notice"])
+
+CORE_HDRS = ["SkEncodedOrigin.h"]
+
+skia_filegroup(
+    name = "core_hdrs",
+    srcs = CORE_HDRS,
+    visibility = ["//src/core:__pkg__"],
 )
 
-generated_cc_atom(
-    name = "SkCodec_hdr",
-    hdrs = ["SkCodec.h"],
-    visibility = ["//:__subpackages__"],
-    deps = [
-        ":SkCodecAnimation_hdr",
-        ":SkEncodedOrigin_hdr",
-        "//include/core:SkColor_hdr",
-        "//include/core:SkEncodedImageFormat_hdr",
-        "//include/core:SkImageInfo_hdr",
-        "//include/core:SkPixmap_hdr",
-        "//include/core:SkSize_hdr",
-        "//include/core:SkStream_hdr",
-        "//include/core:SkTypes_hdr",
-        "//include/core:SkYUVAPixmaps_hdr",
-        "//include/private:SkEncodedInfo_hdr",
-        "//include/private:SkNoncopyable_hdr",
-        "//include/private:SkTemplates_hdr",
-    ],
+ANY_CODEC_HDRS = [
+    "SkCodec.h",
+    "SkCodecAnimation.h",
+    "SkEncodedImageFormat.h",
+    "SkPixmapUtils.h",
+]
+
+skia_filegroup(
+    name = "any_codec_hdrs",
+    srcs = ANY_CODEC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
 )
 
-generated_cc_atom(
-    name = "SkEncodedOrigin_hdr",
-    hdrs = ["SkEncodedOrigin.h"],
-    visibility = ["//:__subpackages__"],
-    deps = ["//include/core:SkMatrix_hdr"],
+ANDROID_PUBLIC_HDRS = ["SkAndroidCodec.h"]
+
+skia_filegroup(
+    name = "android_public_hdrs",
+    srcs = ANDROID_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+BMP_PUBLIC_HDRS = ["SkBmpDecoder.h"]
+
+skia_filegroup(
+    name = "bmp_public_hdrs",
+    srcs = BMP_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+GIF_PUBLIC_HDRS = ["SkGifDecoder.h"]
+
+skia_filegroup(
+    name = "gif_public_hdrs",
+    srcs = GIF_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+ICO_PUBLIC_HDRS = ["SkIcoDecoder.h"]
+
+skia_filegroup(
+    name = "ico_public_hdrs",
+    srcs = ICO_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+JPEG_PUBLIC_HDRS = ["SkJpegDecoder.h"]
+
+skia_filegroup(
+    name = "jpeg_public_hdrs",
+    srcs = JPEG_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+JPEGXL_PUBLIC_HDRS = ["SkJpegxlDecoder.h"]
+
+skia_filegroup(
+    name = "jpegxl_public_hdrs",
+    srcs = JPEGXL_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+PNG_PUBLIC_HDRS = [
+    "SkPngChunkReader.h",
+    "SkPngDecoder.h",
+]
+
+skia_filegroup(
+    name = "png_public_hdrs",
+    srcs = PNG_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+skia_filegroup(
+    name = "rust_png_public_hdrs",
+    srcs = ["SkPngRustDecoder.h"],
+    visibility = ["//src/codec:__pkg__"],
+)
+
+WBMP_PUBLIC_HDRS = ["SkWbmpDecoder.h"]
+
+skia_filegroup(
+    name = "wbmp_public_hdrs",
+    srcs = WBMP_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+WEBP_PUBLIC_HDRS = ["SkWebpDecoder.h"]
+
+skia_filegroup(
+    name = "webp_public_hdrs",
+    srcs = WEBP_PUBLIC_HDRS,
+    visibility = ["//src/codec:__pkg__"],
+)
+
+generate_cpp_files_for_headers(
+    name = "headers_to_compile",
+    headers = CORE_HDRS +
+              ANY_CODEC_HDRS +
+              ANDROID_PUBLIC_HDRS +
+              BMP_PUBLIC_HDRS +
+              GIF_PUBLIC_HDRS +
+              ICO_PUBLIC_HDRS +
+              JPEG_PUBLIC_HDRS +
+              JPEGXL_PUBLIC_HDRS +
+              PNG_PUBLIC_HDRS +
+              WBMP_PUBLIC_HDRS +
+              WEBP_PUBLIC_HDRS,
 )

@@ -8,11 +8,12 @@
 #define PathOpsExtendedTest_DEFINED
 
 #include "include/core/SkBitmap.h"
-#include "include/core/SkPath.h"
-#include "include/core/SkStream.h"
-#include "src/pathops/SkPathOpsTypes.h"
-#include "tests/Test.h"
+#include "include/pathops/SkPathOps.h"
 
+#include <cstddef>
+
+class SkPath;
+namespace skiatest { class Reporter; }
 struct PathOpsThreadState;
 
 struct TestDesc {
@@ -31,7 +32,6 @@ inline int comparePaths(skiatest::Reporter* reporter, const char* filename,
 }
 
 extern bool drawAsciiPaths(const SkPath& one, const SkPath& two, bool drawPaths);
-extern void markTestFlakyForPathKit();
 extern void showOp(const SkPathOp op);
 extern bool testPathOp(skiatest::Reporter* reporter, const SkPath& a, const SkPath& b,
                        const SkPathOp , const char* testName);

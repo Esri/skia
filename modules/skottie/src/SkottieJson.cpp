@@ -7,14 +7,16 @@
 
 #include "modules/skottie/src/SkottieJson.h"
 
-#include "include/core/SkData.h"
-#include "include/core/SkPath.h"
+#include "include/core/SkM44.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkScalar.h"
-#include "include/core/SkStream.h"
 #include "include/core/SkString.h"
+#include "include/private/base/SkTo.h"
+#include "modules/jsonreader/SkJSONReader.h"
 #include "modules/skottie/src/SkottieValue.h"
-#include <vector>
+
+#include <cstddef>
+#include <limits>
 
 namespace skottie {
 
@@ -57,8 +59,13 @@ template <typename T>
 bool ParseIntegral(const Value& v, T* result) {
     if (const skjson::NumberValue* num = v) {
         const auto dbl = **num;
+        if (dbl > static_cast<double>(std::numeric_limits<T>::max()) ||
+            dbl < static_cast<double>(std::numeric_limits<T>::min())) {
+            return false;
+        }
+
         *result = static_cast<T>(dbl);
-        return static_cast<double>(*result) == dbl;
+        return true;
     }
 
     return false;
@@ -120,6 +127,15 @@ bool Parse<VectorValue>(const Value& v, VectorValue* vec) {
     }
 
     return true;
+}
+
+const skjson::StringValue* ParseSlotID(const skjson::ObjectValue* jobj) {
+    if (jobj) {
+        if (const skjson::StringValue* sid = (*jobj)["sid"]) {
+            return sid;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace skottie

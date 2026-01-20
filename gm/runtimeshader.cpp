@@ -6,6 +6,7 @@
  */
 
 #include "gm/gm.h"
+#include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkData.h"
 #include "include/core/SkPaint.h"
@@ -16,8 +17,12 @@
 #include "include/effects/SkGradientShader.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkRuntimeEffect.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
+#include "src/core/SkColorSpacePriv.h"
+#include "src/core/SkRuntimeEffectPriv.h"
+#include "tools/DecodeUtils.h"
 #include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 
 enum RT_Flags {
     kAnimate_RTFlag     = 0x1,
@@ -41,8 +46,8 @@ public:
     }
 
     bool runAsBench() const override { return SkToBool(fFlags & kBench_RTFlag); }
-    SkString onShortName() override { return fName; }
-    SkISize onISize() override { return fSize; }
+    SkString getName() const override { return fName; }
+    SkISize getISize() override { return fSize; }
 
     bool onAnimate(double nanos) override {
         fSecs = nanos / (1000 * 1000 * 1000);
@@ -77,7 +82,7 @@ public:
         builder.uniform("gColor") = SkColor4f{1, 0, 0, 1};
 
         SkPaint p;
-        p.setShader(builder.makeShader(&localM, true));
+        p.setShader(builder.makeShader(&localM));
         canvas->drawRect({0, 0, 256, 256}, p);
     }
 };
@@ -92,7 +97,7 @@ static sk_sp<SkShader> make_shader(sk_sp<SkImage> img, SkISize size) {
 static sk_sp<SkShader> make_threshold(SkISize size) {
     auto info = SkImageInfo::Make(size.width(), size.height(), kAlpha_8_SkColorType,
                                   kPremul_SkAlphaType);
-    auto surf = SkSurface::MakeRaster(info);
+    auto surf = SkSurfaces::Raster(info);
     auto canvas = surf->getCanvas();
 
     const SkScalar rad = 50;
@@ -150,8 +155,8 @@ public:
     void onOnceBeforeDraw() override {
         const SkISize size = {256, 256};
         fThreshold = make_threshold(size);
-        fBefore = make_shader(GetResourceAsImage("images/mandrill_256.png"), size);
-        fAfter = make_shader(GetResourceAsImage("images/dog.jpg"), size);
+        fBefore = make_shader(ToolUtils::GetResourceAsImage("images/mandrill_256.png"), size);
+        fAfter = make_shader(ToolUtils::GetResourceAsImage("images/dog.jpg"), size);
 
         this->RuntimeShaderGM::onOnceBeforeDraw();
     }
@@ -159,7 +164,7 @@ public:
     void onDraw(SkCanvas* canvas) override {
         SkRuntimeShaderBuilder builder(fEffect);
 
-        builder.uniform("cutoff") = sin(fSecs) * 0.55f + 0.5f;
+        builder.uniform("cutoff") = sinf(fSecs) * 0.55f + 0.5f;
         builder.uniform("slope")  = 10.0f;
 
         builder.child("before_map")    = fBefore;
@@ -167,7 +172,7 @@ public:
         builder.child("threshold_map") = fThreshold;
 
         SkPaint paint;
-        paint.setShader(builder.makeShader(nullptr, true));
+        paint.setShader(builder.makeShader());
         canvas->drawRect({0, 0, 256, 256}, paint);
 
         auto draw = [&](SkScalar x, SkScalar y, sk_sp<SkShader> shader) {
@@ -213,14 +218,14 @@ public:
         builder.uniform("in_colors1") = SkColors::kGreen;
 
         SkPaint paint;
-        paint.setShader(builder.makeShader(nullptr, true));
+        paint.setShader(builder.makeShader());
         canvas->drawRect({0, 0, 512, 512}, paint);
     }
 };
 DEF_GM(return new SpiralRT;)
 
 // Test case for sampling with both unmodified input coordinates, and explicit coordinates.
-// The first version of skbug.com/11869 suffered a bug where all samples of a child were treated
+// The first version of skbug.com/40042955 suffered a bug where all samples of a child were treated
 // as pass-through if *at least one* used the unmodified coordinates. This was detected & tracked
 // in b/181092919. This GM is similar, and demonstrates the bug before the fix was applied.
 class UnsharpRT : public RuntimeShaderGM {
@@ -240,7 +245,7 @@ public:
     sk_sp<SkImage> fMandrill;
 
     void onOnceBeforeDraw() override {
-        fMandrill      = GetResourceAsImage("images/mandrill_256.png");
+        fMandrill = ToolUtils::GetResourceAsImage("images/mandrill_256.png");
         this->RuntimeShaderGM::onOnceBeforeDraw();
     }
 
@@ -254,7 +259,7 @@ public:
         builder.child("child") = fMandrill->makeShader(sampling);
 
         SkPaint paint;
-        paint.setShader(builder.makeShader(nullptr, true));
+        paint.setShader(builder.makeShader());
         canvas->translate(256, 0);
         canvas->drawRect({ 0, 0, 256, 256 }, paint);
     }
@@ -296,10 +301,10 @@ public:
     sk_sp<SkImage> fMandrill, fMandrillSepia, fIdentityCube, fSepiaCube;
 
     void onOnceBeforeDraw() override {
-        fMandrill      = GetResourceAsImage("images/mandrill_256.png");
-        fMandrillSepia = GetResourceAsImage("images/mandrill_sepia.png");
-        fIdentityCube  = GetResourceAsImage("images/lut_identity.png");
-        fSepiaCube     = GetResourceAsImage("images/lut_sepia.png");
+        fMandrill = ToolUtils::GetResourceAsImage("images/mandrill_256.png");
+        fMandrillSepia = ToolUtils::GetResourceAsImage("images/mandrill_sepia.png");
+        fIdentityCube = ToolUtils::GetResourceAsImage("images/lut_identity.png");
+        fSepiaCube = ToolUtils::GetResourceAsImage("images/lut_sepia.png");
 
         this->RuntimeShaderGM::onOnceBeforeDraw();
     }
@@ -330,13 +335,13 @@ public:
 
         // Now draw the image with an identity color cube - it should look like the original
         builder.child("color_cube") = fIdentityCube->makeShader(sampling, normalize);
-        paint.setShader(builder.makeShader(nullptr, true));
+        paint.setShader(builder.makeShader());
         canvas->translate(256, 0);
         canvas->drawRect({ 0, 0, 256, 256 }, paint);
 
         // ... and with a sepia-tone color cube. This should match the sepia-toned image.
         builder.child("color_cube") = fSepiaCube->makeShader(sampling, normalize);
-        paint.setShader(builder.makeShader(nullptr, true));
+        paint.setShader(builder.makeShader());
         canvas->translate(0, 256);
         canvas->drawRect({ 0, 0, 256, 256 }, paint);
     }
@@ -379,15 +384,17 @@ public:
     sk_sp<SkImage> fMandrill, fMandrillSepia, fIdentityCube, fSepiaCube;
 
     void onOnceBeforeDraw() override {
-        fMandrill      = GetResourceAsImage("images/mandrill_256.png");
-        fMandrillSepia = GetResourceAsImage("images/mandrill_sepia.png");
-        fIdentityCube  = GetResourceAsImage("images/lut_identity.png");
-        fSepiaCube     = GetResourceAsImage("images/lut_sepia.png");
+        fMandrill = ToolUtils::GetResourceAsImage("images/mandrill_256.png");
+        fMandrillSepia = ToolUtils::GetResourceAsImage("images/mandrill_sepia.png");
+        fIdentityCube = ToolUtils::GetResourceAsImage("images/lut_identity.png");
+        fSepiaCube = ToolUtils::GetResourceAsImage("images/lut_sepia.png");
 
         this->RuntimeShaderGM::onOnceBeforeDraw();
     }
 
     void onDraw(SkCanvas* canvas) override {
+        SkRuntimeColorFilterBuilder builder(fEffect);
+
         // First we draw the unmodified image, and a copy that was sepia-toned in Photoshop:
         canvas->drawImage(fMandrill,      0,   0);
         canvas->drawImage(fMandrillSepia, 0, 256);
@@ -397,12 +404,10 @@ public:
 
         const SkSamplingOptions sampling(SkFilterMode::kLinear);
 
-        float uniforms[] = {
-                (kSize - 1) / kSize,  // rg_scale
-                0.5f / kSize,         // rg_bias
-                kSize - 1,            // b_scale
-                1.0f / kSize,         // inv_size
-        };
+        builder.uniform("rg_scale")     = (kSize - 1) / kSize;
+        builder.uniform("rg_bias")      = 0.5f / kSize;
+        builder.uniform("b_scale")      = kSize - 1;
+        builder.uniform("inv_size")     = 1.0f / kSize;
 
         SkPaint paint;
 
@@ -410,55 +415,19 @@ public:
         SkMatrix normalize = SkMatrix::Scale(1.0f / (kSize * kSize), 1.0f / kSize);
 
         // Now draw the image with an identity color cube - it should look like the original
-        SkRuntimeEffect::ChildPtr children[] = {fIdentityCube->makeShader(sampling, normalize)};
-        paint.setColorFilter(fEffect->makeColorFilter(
-                SkData::MakeWithCopy(uniforms, sizeof(uniforms)), SkMakeSpan(children)));
+        builder.child("color_cube") = fIdentityCube->makeShader(sampling, normalize);
+
+        paint.setColorFilter(builder.makeColorFilter());
         canvas->drawImage(fMandrill, 256, 0, sampling, &paint);
 
         // ... and with a sepia-tone color cube. This should match the sepia-toned image.
-        children[0] = fSepiaCube->makeShader(sampling, normalize);
-        paint.setColorFilter(fEffect->makeColorFilter(
-                SkData::MakeWithCopy(uniforms, sizeof(uniforms)), SkMakeSpan(children)));
+        builder.child("color_cube") = fSepiaCube->makeShader(sampling, normalize);
+
+        paint.setColorFilter(builder.makeColorFilter());
         canvas->drawImage(fMandrill, 256, 256, sampling, &paint);
     }
 };
 DEF_GM(return new ColorCubeColorFilterRT;)
-
-class DefaultColorRT : public RuntimeShaderGM {
-public:
-    DefaultColorRT() : RuntimeShaderGM("default_color_rt", {512, 256}, R"(
-        uniform shader child;
-        half4 main(float2 xy) {
-            return child.eval(xy);
-        }
-    )") {}
-
-    sk_sp<SkImage> fMandrill;
-
-    void onOnceBeforeDraw() override {
-        fMandrill      = GetResourceAsImage("images/mandrill_256.png");
-        this->RuntimeShaderGM::onOnceBeforeDraw();
-    }
-
-    void onDraw(SkCanvas* canvas) override {
-        SkRuntimeShaderBuilder builder(fEffect);
-
-        // First, we leave the child as null, so sampling it returns the default (paint) color
-        SkPaint paint;
-        paint.setColor4f({ 0.25f, 0.75f, 0.75f, 1.0f });
-        paint.setShader(builder.makeShader(nullptr, false));
-        canvas->drawRect({ 0, 0, 256, 256 }, paint);
-
-        // Now we bind an image shader as the child. This (by convention) scales by the paint alpha
-        builder.child("child") = fMandrill->makeShader(SkSamplingOptions());
-        paint.setColor4f({ 1.0f, 1.0f, 1.0f, 0.5f });
-        paint.setShader(builder.makeShader(nullptr, false));
-        canvas->translate(256, 0);
-        canvas->drawRect({ 0, 0, 256, 256 }, paint);
-
-    }
-};
-DEF_GM(return new DefaultColorRT;)
 
 // Emits coverage for a rounded rectangle whose corners are superellipses defined by the boundary:
 //
@@ -542,7 +511,7 @@ public:
         SkMatrix cornerToLocal;
         cornerToLocal.setScaleTranslate(cornerWidth, cornerHeight, superRRect.centerX(),
                                         superRRect.centerY());
-        canvas->clipShader(builder.makeShader(&cornerToLocal, false));
+        canvas->clipShader(builder.makeShader(&cornerToLocal));
 
         // Bloat the outer edges of the rect we will draw so it contains all the antialiased pixels.
         // Bloat by a full pixel instead of half in case Skia is in a mode that draws this rect with
@@ -620,6 +589,60 @@ DEF_GM(return new ClipSuperRRect("clip_super_rrect_pow3.5", 3.5);)
 // DEF_GM(return new ClipSuperRRect("clip_super_rrect_pow4.5", 4.5);)
 // DEF_GM(return new ClipSuperRRect("clip_super_rrect_pow5", 5);)
 
+class LinearGradientRT : public RuntimeShaderGM {
+public:
+    LinearGradientRT() : RuntimeShaderGM("linear_gradient_rt", {256 + 10, 128 + 15}, R"(
+        layout(color) uniform vec4 in_colors0;
+        layout(color) uniform vec4 in_colors1;
+
+        vec4 main(vec2 p) {
+            float t = p.x / 256;
+            if (p.y < 32) {
+                return mix(in_colors0, in_colors1, t);
+            } else {
+                vec3 linColor0 = toLinearSrgb(in_colors0.rgb);
+                vec3 linColor1 = toLinearSrgb(in_colors1.rgb);
+                vec3 linColor = mix(linColor0, linColor1, t);
+                return fromLinearSrgb(linColor).rgb1;
+            }
+        }
+    )") {}
+
+    void onDraw(SkCanvas* canvas) override {
+        // Colors chosen to use values other than 0 and 1 - so that it's obvious if the conversion
+        // intrinsics are doing anything. (Most transfer functions map 0 -> 0 and 1 -> 1).
+        SkRuntimeShaderBuilder builder(fEffect);
+        builder.uniform("in_colors0") = SkColor4f{0.75f, 0.25f, 0.0f, 1.0f};
+        builder.uniform("in_colors1") = SkColor4f{0.0f, 0.75f, 0.25f, 1.0f};
+        SkPaint paint;
+        paint.setShader(builder.makeShader());
+
+        canvas->save();
+        canvas->clear(SK_ColorWHITE);
+        canvas->translate(5, 5);
+
+        // We draw everything twice. First to a surface with no color management, where the
+        // intrinsics should do nothing (eg, the top bar should look the same in the top and bottom
+        // halves). Then to an sRGB surface, where they should produce linearly interpolated
+        // gradients (the bottom half of the second bar should be brighter than the top half).
+        for (auto cs : {static_cast<SkColorSpace*>(nullptr), sk_srgb_singleton()}) {
+            SkImageInfo info = SkImageInfo::Make(
+                    256, 64, kN32_SkColorType, kPremul_SkAlphaType, sk_ref_sp(cs));
+            auto surface = canvas->makeSurface(info);
+            if (!surface) {
+                surface = SkSurfaces::Raster(info);
+            }
+
+            surface->getCanvas()->drawRect({0, 0, 256, 64}, paint);
+            canvas->drawImage(surface->makeImageSnapshot(), 0, 0);
+            canvas->translate(0, 64 + 5);
+        }
+
+        canvas->restore();
+    }
+};
+DEF_GM(return new LinearGradientRT;)
+
 DEF_SIMPLE_GM(child_sampling_rt, canvas, 256,256) {
     static constexpr char scale[] =
         "uniform shader child;"
@@ -633,13 +656,13 @@ DEF_SIMPLE_GM(child_sampling_rt, canvas, 256,256) {
     p.setStyle(SkPaint::kStroke_Style);
     p.setStrokeWidth(1);
 
-    auto surf = SkSurface::MakeRasterN32Premul(100,100);
+    auto surf = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(100, 100));
     surf->getCanvas()->drawLine(0, 0, 100, 100, p);
     auto shader = surf->makeImageSnapshot()->makeShader(SkSamplingOptions(SkFilterMode::kLinear));
 
     SkRuntimeShaderBuilder builder(SkRuntimeEffect::MakeForShader(SkString(scale)).effect);
     builder.child("child") = shader;
-    p.setShader(builder.makeShader(nullptr, false));
+    p.setShader(builder.makeShader());
 
     canvas->drawPaint(p);
 }
@@ -655,13 +678,13 @@ static sk_sp<SkShader> normal_map_shader() {
         }
     )";
     auto effect = SkRuntimeEffect::MakeForShader(SkString(kSrc)).effect;
-    return effect->makeShader(nullptr, {}, nullptr, true);
+    return effect->makeShader(nullptr, {});
 }
 
 static sk_sp<SkImage> normal_map_image() {
     // Above, baked into an image:
     auto info = SkImageInfo::Make(256, 256, kN32_SkColorType, kPremul_SkAlphaType);
-    auto surface = SkSurface::MakeRaster(info);
+    auto surface = SkSurfaces::Raster(info);
     SkPaint p;
     p.setShader(normal_map_shader());
     surface->getCanvas()->drawPaint(p);
@@ -669,11 +692,11 @@ static sk_sp<SkImage> normal_map_image() {
 }
 
 static sk_sp<SkShader> normal_map_image_shader() {
-    return normal_map_image()->makeShader(SkSamplingOptions{});
+    return normal_map_image()->makeShader(SkFilterMode::kNearest);
 }
 
 static sk_sp<SkShader> normal_map_raw_image_shader() {
-    return normal_map_image()->makeRawShader(SkSamplingOptions{});
+    return normal_map_image()->makeRawShader(SkFilterMode::kNearest);
 }
 
 static sk_sp<SkImage> normal_map_unpremul_image() {
@@ -692,15 +715,15 @@ static sk_sp<SkImage> normal_map_unpremul_image() {
 }
 
 static sk_sp<SkShader> normal_map_unpremul_image_shader() {
-    return normal_map_unpremul_image()->makeShader(SkSamplingOptions{});
+    return normal_map_unpremul_image()->makeShader(SkFilterMode::kNearest);
 }
 
 static sk_sp<SkShader> normal_map_raw_unpremul_image_shader() {
-    return normal_map_unpremul_image()->makeRawShader(SkSamplingOptions{});
+    return normal_map_unpremul_image()->makeRawShader(SkFilterMode::kNearest);
 }
 
 static sk_sp<SkShader> lit_shader(sk_sp<SkShader> normals) {
-    // Simple N.L against a fixed, directional light:
+    // Simple N-dot-L against a fixed, directional light:
     static const char* kSrc = R"(
         uniform shader normals;
         half4 main(vec2 p) {
@@ -710,13 +733,27 @@ static sk_sp<SkShader> lit_shader(sk_sp<SkShader> normals) {
         }
     )";
     auto effect = SkRuntimeEffect::MakeForShader(SkString(kSrc)).effect;
-    return effect->makeShader(nullptr, &normals, 1, nullptr, true);
+    return effect->makeShader(/* uniforms= */ nullptr, &normals, /* childCount= */ 1);
+}
+
+static sk_sp<SkShader> lit_shader_linear(sk_sp<SkShader> normals) {
+    // Simple N-dot-L against a fixed, directional light, done in linear space:
+    static const char* kSrc = R"(
+        uniform shader normals;
+        half4 main(vec2 p) {
+            vec3 n = normalize(normals.eval(p).xyz * 2 - 1);
+            vec3 l = normalize(vec3(1, -1, 1));
+            return fromLinearSrgb(saturate(dot(n, l)).xxx).xxx1;
+        }
+    )";
+    auto effect = SkRuntimeEffect::MakeForShader(SkString(kSrc)).effect;
+    return effect->makeShader(/* uniforms= */ nullptr, &normals, /* childCount= */ 1);
 }
 
 DEF_SIMPLE_GM(paint_alpha_normals_rt, canvas, 512,512) {
     // Various draws, with non-opaque paint alpha. This demonstrates several issues around how
     // paint alpha is applied differently on CPU (globally, after all shaders) and GPU (per shader,
-    // inconsistently). See: skbug.com/11942
+    // inconsistently). See: skbug.com/40043035
     //
     // When this works, it will be a demo of applying paint alpha to fade out a complex effect.
     auto draw_shader = [=](int x, int y, sk_sp<SkShader> shader) {
@@ -748,7 +785,7 @@ DEF_SIMPLE_GM(raw_image_shader_normals_rt, canvas, 768, 512) {
                                       SkColorSpace::MakeSRGB()->makeColorSpin());
     auto surface = canvas->makeSurface(surfInfo);
     if (!surface) {
-        surface = SkSurface::MakeRaster(surfInfo);
+        surface = SkSurfaces::Raster(surfInfo);
     }
 
     auto draw_shader = [](int x, int y, sk_sp<SkShader> shader, SkCanvas* canvas) {
@@ -788,4 +825,309 @@ DEF_SIMPLE_GM(raw_image_shader_normals_rt, canvas, 768, 512) {
     // encoded normals, even with zero alpha:
     draw_shader(512, 0, lit_shader(normal_map_unpremul_image_shader()), canvas);
     draw_shader(512, 256, lit_shader(normal_map_raw_unpremul_image_shader()), canvas);
+}
+
+DEF_SIMPLE_GM(lit_shader_linear_rt, canvas, 512, 256) {
+    // First, make an offscreen surface, so we can control the destination color space:
+    auto surfInfo = SkImageInfo::Make(512, 256,
+                                      kN32_SkColorType,
+                                      kPremul_SkAlphaType,
+                                      SkColorSpace::MakeSRGB());
+    auto surface = canvas->makeSurface(surfInfo);
+    if (!surface) {
+        surface = SkSurfaces::Raster(surfInfo);
+    }
+
+    auto draw_shader = [](int x, int y, sk_sp<SkShader> shader, SkCanvas* canvas) {
+        SkPaint p;
+        p.setShader(shader);
+
+        canvas->save();
+        canvas->translate(x, y);
+        canvas->clipRect({0, 0, 256, 256});
+        canvas->drawPaint(p);
+        canvas->restore();
+    };
+
+    // We draw two lit spheres - one does math in the working space (so gamma-encoded). The second
+    // works in linear space, then converts to sRGB. This produces (more accurate) sharp falloff:
+    draw_shader(0, 0, lit_shader(normal_map_shader()), surface->getCanvas());
+    draw_shader(256, 0, lit_shader_linear(normal_map_shader()), surface->getCanvas());
+
+    // Now draw the offscreen surface back to our original canvas:
+    canvas->drawImage(surface->makeImageSnapshot(), 0, 0);
+}
+
+// skbug.com/40044685 GPU was double applying the local matrix.
+DEF_SIMPLE_GM(local_matrix_shader_rt, canvas, 256, 256) {
+    SkString passthrough(R"(
+        uniform shader s;
+        half4 main(float2 p) { return s.eval(p); }
+    )");
+    auto [rte, error] = SkRuntimeEffect::MakeForShader(passthrough, {});
+    if (!rte) {
+        SkDebugf("%s\n", error.c_str());
+        return;
+    }
+
+    auto image = ToolUtils::GetResourceAsImage("images/mandrill_128.png");
+    auto imgShader = image->makeShader(SkFilterMode::kNearest);
+
+    auto r = SkRect::MakeWH(image->width(), image->height());
+
+    auto lm = SkMatrix::RotateDeg(90.f, {image->width()/2.f, image->height()/2.f});
+
+    SkPaint paint;
+
+    // image
+    paint.setShader(imgShader);
+    canvas->drawRect(r, paint);
+
+    // passthrough(image)
+    canvas->save();
+    canvas->translate(image->width(), 0);
+    paint.setShader(rte->makeShader(/* uniforms= */ nullptr, &imgShader, /* childCount= */ 1));
+    canvas->drawRect(r, paint);
+    canvas->restore();
+
+    // localmatrix(image)
+    canvas->save();
+    canvas->translate(0, image->height());
+    paint.setShader(imgShader->makeWithLocalMatrix(lm));
+    canvas->drawRect(r, paint);
+    canvas->restore();
+
+    // localmatrix(passthrough(image)) This was the bug.
+    canvas->save();
+    canvas->translate(image->width(), image->height());
+    paint.setShader(rte->makeShader(/* uniforms= */ nullptr, &imgShader, /* childCount= */ 1)
+                            ->makeWithLocalMatrix(lm));
+    canvas->drawRect(r, paint);
+    canvas->restore();
+}
+
+DEF_SIMPLE_GM(null_child_rt, canvas, 150, 100) {
+    using ChildPtr = SkRuntimeEffect::ChildPtr;
+
+    // Every swatch should evaluate to the same shade of purple.
+    // Paint with a shader evaluating a null shader.
+    // Point passed to eval() is ignored; transparent black is returned.
+    {
+        const SkString kEvalShader{R"(
+            uniform shader s;
+            half4 main(float2 p) { return s.eval(p) + half4(0.5, 0, 0.5, 1); }
+        )"};
+        auto [rtShader, error] = SkRuntimeEffect::MakeForShader(kEvalShader);
+        SkASSERT(rtShader);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkShader>{nullptr}}};
+        paint.setShader(rtShader->makeShader(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0xFF, 0x00));  // green (ignored)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+    // Paint with a shader evaluating a null color filter.
+    // Color passed to eval() is returned; paint color is ignored.
+    {
+        const SkString kEvalColorFilter{R"(
+            uniform colorFilter cf;
+            half4 main(float2 p) { return cf.eval(half4(0.5, 0, 0.5, 1)); }
+        )"};
+        auto [rtShader, error] = SkRuntimeEffect::MakeForShader(kEvalColorFilter);
+        SkASSERT(rtShader);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkColorFilter>{nullptr}}};
+        paint.setShader(rtShader->makeShader(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0x00, 0xFF));  // green (does not contribute)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+    // Paint with a shader evaluating a null blender.
+    // Colors passed to eval() are blended via src-over; paint color is ignored.
+    {
+        const SkString kEvalBlender{R"(
+            uniform blender b;
+            half4 main(float2 p) { return b.eval(half4(0.5, 0, 0, 0.5), half4(0, 0, 1, 1)); }
+        )"};
+        auto [rtShader, error] = SkRuntimeEffect::MakeForShader(kEvalBlender);
+        SkASSERT(rtShader);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkBlender>{nullptr}}};
+        paint.setShader(rtShader->makeShader(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0x00, 0xFF));  // green (does not contribute)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+
+    canvas->translate(-150, 50);
+
+    // Paint with a color filter evaluating a null shader.
+    // Point passed to eval() is ignored; transparent black is returned.
+    {
+        const SkString kEvalShader{R"(
+            uniform shader s;
+            half4 main(half4 c) { return s.eval(float2(0)) + half4(0.5, 0, 0.5, 1); }
+        )"};
+        auto [rtFilter, error] = SkRuntimeEffect::MakeForColorFilter(kEvalShader);
+        SkASSERT(rtFilter);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkShader>{nullptr}}};
+        paint.setColorFilter(rtFilter->makeColorFilter(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0xFF, 0x00));  // green (ignored)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+    // Paint with a color filter evaluating a null color filter.
+    // Color passed to eval() is returned; paint color is ignored.
+    {
+        const SkString kEvalColorFilter{R"(
+            uniform colorFilter cf;
+            half4 main(half4 c) { return cf.eval(half4(0.5, 0, 0.5, 1)); }
+        )"};
+        auto [rtFilter, error] = SkRuntimeEffect::MakeForColorFilter(kEvalColorFilter);
+        SkASSERT(rtFilter);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkColorFilter>{nullptr}}};
+        paint.setColorFilter(rtFilter->makeColorFilter(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0x00, 0xFF));  // green (does not contribute)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+    // Paint with a color filter evaluating a null blender.
+    // Colors passed to eval() are blended via src-over; paint color is ignored.
+    {
+        const SkString kEvalBlender{R"(
+            uniform blender b;
+            half4 main(half4 c) { return b.eval(half4(0.5, 0, 0, 0.5), half4(0, 0, 1, 1)); }
+        )"};
+        auto [rtFilter, error] = SkRuntimeEffect::MakeForColorFilter(kEvalBlender);
+        SkASSERT(rtFilter);
+
+        SkPaint paint;
+        ChildPtr children[1] = {ChildPtr{sk_sp<SkBlender>{nullptr}}};
+        paint.setColorFilter(rtFilter->makeColorFilter(/*uniforms=*/nullptr, children));
+        paint.setColor(SkColorSetARGB(0xFF, 0x00, 0x00, 0xFF));  // green (does not contribute)
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    }
+}
+
+DEF_SIMPLE_GM_CAN_FAIL(deferred_shader_rt, canvas, errorMsg, 150, 50) {
+    // Skip this GM on recording devices. It actually works okay on serialize-8888, but pic-8888
+    // does not. Ultimately, behavior on CPU is potentially strange (especially with SkRP), because
+    // SkRP will build the shader more than once per draw.
+    if (canvas->imageInfo().colorType() == kUnknown_SkColorType) {
+        return skiagm::DrawResult::kSkip;
+    }
+
+    const SkString kShader{R"(
+        uniform half4 color;
+        half4 main(float2 p) { return color; }
+    )"};
+    auto [effect, error] = SkRuntimeEffect::MakeForShader(kShader);
+    SkASSERT(effect);
+
+    SkColor4f color = SkColors::kRed;
+    auto makeUniforms = [color](const SkRuntimeEffectPriv::UniformsCallbackContext&) mutable {
+        auto result = SkData::MakeWithCopy(&color, sizeof(color));
+        color = {color.fB, color.fR, color.fG, color.fA};
+        return result;
+    };
+
+    auto shader =
+            SkRuntimeEffectPriv::MakeDeferredShader(effect.get(), makeUniforms, /*children=*/{});
+    SkASSERT(shader);
+
+    SkPaint paint;
+    paint.setShader(shader);
+
+    for (int i = 0; i < 3; ++i) {
+        canvas->drawRect({0, 0, 50, 50}, paint);
+        canvas->translate(50, 0);
+    }
+
+    return skiagm::DrawResult::kOk;
+}
+
+sk_sp<SkShader> paint_color_shader() {
+    SkBitmap bmp;
+    bmp.allocPixels(SkImageInfo::Make(1, 1, kAlpha_8_SkColorType, kPremul_SkAlphaType));
+    bmp.eraseColor(SK_ColorWHITE);
+    return bmp.makeShader(SkFilterMode::kNearest);
+}
+
+DEF_SIMPLE_GM_CAN_FAIL(alpha_image_shader_rt, canvas, errorMsg, 350, 50) {
+    if (!canvas->getSurface()) {
+        // The only backend that really fails is DDL (because the color filter fails to evaluate on
+        // the CPU when we do paint optimization). We can't identify DDL separate from other
+        // recording backends, so skip this GM for all of them:
+        *errorMsg = "Not supported in recording/DDL mode";
+        return skiagm::DrawResult::kSkip;
+    }
+
+    // Skia typically applies the paint color (or input color, for more complex GPU-FP trees)
+    // to alpha-only images. This is useful in trivial cases, but surprising and inconsistent in
+    // more complex situations, especially when using SkSL.
+    //
+    // This GM checks that we suppress the paint-color tinting from SkSL, and always get {0,0,0,a}.
+    auto checkerboard = ToolUtils::create_checkerboard_shader(SK_ColorBLACK, SK_ColorWHITE, 4);
+    auto paint_shader = paint_color_shader();
+    SkRuntimeEffect::ChildPtr children[1] = { paint_shader };
+
+    SkPaint paint;
+    paint.setColor({0.5f, 0, 0.5f, 1.0f});
+
+    auto rect = [&]() {
+        canvas->drawRect({0, 0, 48, 48}, paint);
+        canvas->translate(50, 0);
+    };
+
+    // Two simple cases: just paint color, then the "paint color" shader.
+    // These should both be PURPLE
+    rect();
+
+    paint.setShader(paint_shader);
+    rect();
+
+    // All remaining cases should be BLACK
+
+    // Shader that evaluates the "paint color" shader.
+    // For color-filter and blender, we test them with and without an actual SkShader on the paint.
+    // These should all be BLACK
+    paint.setShader(
+            SkRuntimeEffect::MakeForShader(SkString("uniform shader s;"
+                                                    "half4 main(float2 p) { return s.eval(p); }"))
+                    .effect->makeShader(/* uniforms= */ nullptr, children));
+    rect();
+
+    // Color-filter that evaluates the "paint color" shader, with and without a shader on the paint
+    paint.setShader(nullptr);
+    paint.setColorFilter(SkRuntimeEffect::MakeForColorFilter(
+                                 SkString("uniform shader s;"
+                                          "half4 main(half4 color) { return s.eval(float2(0)); }"))
+                                 .effect->makeColorFilter(nullptr, children));
+    rect();
+
+    paint.setShader(checkerboard);
+    rect();
+
+    // Blender that evaluates the "paint color" shader, with and without a shader on the paint
+    paint.setShader(nullptr);
+    paint.setColorFilter(nullptr);
+    paint.setBlender(
+            SkRuntimeEffect::MakeForBlender(
+                    SkString("uniform shader s;"
+                             "half4 main(half4 src, half4 dst) { return s.eval(float2(0)); }"))
+                    .effect->makeBlender(nullptr, children));
+    rect();
+
+    paint.setShader(checkerboard);
+    rect();
+
+    return skiagm::DrawResult::kOk;
 }

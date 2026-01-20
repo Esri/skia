@@ -8,14 +8,13 @@
 #include "gm/gm.h"
 
 #include "include/core/SkPath.h"
-#include "include/gpu/GrContextOptions.h"
-#include "include/gpu/GrRecordingContext.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrDrawingManager.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
 #include "tools/ToolUtils.h"
+
+#if defined(SK_GANESH)
+#include "include/gpu/ganesh/GrContextOptions.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#endif
 
 namespace skiagm {
 
@@ -30,48 +29,41 @@ namespace skiagm {
 
 
 /**
- * This test originally ensured that the ccpr path cache preserved fill rules properly. CCRP is gone
+ * This test originally ensured that the ccpr path cache preserved fill rules properly. CCPR is gone
  * now, but we decided to keep the test.
  */
-class PreserveFillRuleGM : public GpuGM {
+class PreserveFillRuleGM : public GM {
 public:
     PreserveFillRuleGM(bool big) : fBig(big) , fStarSize((big) ? 200 : 20) {}
 
 private:
-    SkString onShortName() override {
+    SkString getName() const override {
         SkString name("preservefillrule");
         name += (fBig) ? "_big" : "_little";
         return name;
     }
-    SkISize onISize() override { return SkISize::Make(fStarSize * 2, fStarSize * 2); }
+    SkISize getISize() override { return SkISize::Make(fStarSize * 2, fStarSize * 2); }
 
+#if defined(SK_GANESH)
     void modifyGrContextOptions(GrContextOptions* ctxOptions) override {
         ctxOptions->fAllowPathMaskCaching = true;
     }
+#endif
 
-    DrawResult onDraw(GrRecordingContext* rContext, SkCanvas* canvas, SkString* errorMsg) override {
-        auto dContext = GrAsDirectContext(rContext);
-        auto sfc = SkCanvasPriv::TopDeviceSurfaceFillContext(canvas);
-        if (!dContext || !sfc) {
-            *errorMsg = "Requires a direct context.";
-            return skiagm::DrawResult::kSkip;
-        }
-
+    void onDraw(SkCanvas* canvas) override {
         auto starRect = SkRect::MakeWH(fStarSize, fStarSize);
         SkPath star7_winding = ToolUtils::make_star(starRect, 7);
         star7_winding.setFillType(SkPathFillType::kWinding);
 
-        SkPath star7_evenOdd = star7_winding;
-        star7_evenOdd.transform(SkMatrix::Translate(0, fStarSize));
-        star7_evenOdd.setFillType(SkPathFillType::kEvenOdd);
+        SkPath star7_evenOdd = star7_winding.makeTransform(SkMatrix::Translate(0, fStarSize))
+                                            .makeFillType(SkPathFillType::kEvenOdd);
 
-        SkPath star5_winding = ToolUtils::make_star(starRect, 5);
-        star5_winding.transform(SkMatrix::Translate(fStarSize, 0));
-        star5_winding.setFillType(SkPathFillType::kWinding);
+        SkPath star5_winding = ToolUtils::make_star(starRect, 5)
+                               .makeTransform(SkMatrix::Translate(fStarSize, 0))
+                               .makeFillType(SkPathFillType::kWinding);
 
-        SkPath star5_evenOdd = star5_winding;
-        star5_evenOdd.transform(SkMatrix::Translate(0, fStarSize));
-        star5_evenOdd.setFillType(SkPathFillType::kEvenOdd);
+        SkPath star5_evenOdd = star5_winding.makeTransform(SkMatrix::Translate(0, fStarSize))
+                                            .makeFillType(SkPathFillType::kEvenOdd);
 
         SkPaint paint;
         paint.setColor(SK_ColorGREEN);
@@ -82,9 +74,12 @@ private:
         canvas->drawPath(star7_evenOdd, paint);
         canvas->drawPath(star5_winding, paint);
         canvas->drawPath(star5_evenOdd, paint);
-        dContext->priv().flushSurface(sfc->asSurfaceProxy());
 
-        return DrawResult::kOk;
+#if defined(SK_GANESH)
+        if (auto dContext = GrAsDirectContext(canvas->recordingContext())) {
+            dContext->flush();
+        }
+#endif
     }
 
 private:

@@ -5,54 +5,48 @@
  * found in the LICENSE file.
  */
 
+#include "fuzz/Fuzz.h"
+#include "fuzz/FuzzCommon.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkShader.h"
 #include "include/core/SkSurface.h"
 #include "include/effects/SkRuntimeEffect.h"
-#include "src/gpu/GrShaderCaps.h"
+#include "include/private/base/SkTArray.h"
+#include "src/gpu/ganesh/GrShaderCaps.h"
 
-#include "fuzz/Fuzz.h"
+using namespace skia_private;
 
-static constexpr size_t kReservedBytes = 256;
 /**
- * The fuzzer will take in the bytes and divide into two parts.
- * original bytes : [... code bytes ... | 256 bytes]
- * The first part is codeBytes, the original bytes minus 256 bytes, which will be treated
- * as sksl code, intending to create SkRuntimeEffect.
- * For the second part, it will first reserve 256 bytes and then allocate bytes with same size
- * as effect->inputSize() to uniformBytes. The uniformBytes is intended to create makeShader().
- * Note that if uniformBytes->size() != effect->inputSize() the shader won't be created.
+ * The fuzzer treats the input bytes as an SkSL shader program. The requested number of uniforms and
+ * children are automatically synthesized to match the program's needs.
  *
  * We fuzz twice, with two different settings for inlining in the SkSL compiler. By default, the
  * compiler inlines most small to medium functions. This can hide bugs related to function-calling.
- * So we run the fuzzer once with inlining disabled, and again with it enabled (aggressively).
+ * So we run the fuzzer once with inlining disabled, and again with it enabled.
  * This gives us better coverage, and eases the burden on the fuzzer to inject useless noise into
  * functions to suppress inlining.
  */
-static bool FuzzSkRuntimeEffect_Once(sk_sp<SkData> bytes, const SkRuntimeEffect::Options& options) {
-    if (bytes->size() < kReservedBytes) {
-        return false;
-    }
-    sk_sp<SkData> codeBytes = SkData::MakeSubset(bytes.get(), 0, bytes->size() - kReservedBytes);
-
-    SkString shaderText{static_cast<const char*>(codeBytes->data()), codeBytes->size()};
+static bool FuzzSkRuntimeEffect_Once(const SkString& shaderText,
+                                     const SkRuntimeEffect::Options& options) {
     SkRuntimeEffect::Result result = SkRuntimeEffect::MakeForShader(shaderText, options);
     SkRuntimeEffect* effect = result.effect.get();
-
-    if (!effect || effect->uniformSize() > kReservedBytes) { // if there is not enough uniform bytes
+    if (!effect) {
         return false;
     }
-    sk_sp<SkData> uniformBytes =
-            SkData::MakeSubset(bytes.get(), bytes->size() - kReservedBytes, effect->uniformSize());
-    auto shader = effect->makeShader(uniformBytes, /*children=*/nullptr, /*childCount=*/0,
-                                     /*localMatrix=*/nullptr, /*isOpaque=*/false);
+
+    sk_sp<SkData> uniformBytes;
+    TArray<SkRuntimeEffect::ChildPtr> children;
+    FuzzCreateValidInputsForRuntimeEffect(effect, uniformBytes, children);
+
+    sk_sp<SkShader> shader = effect->makeShader(uniformBytes, SkSpan(children));
     if (!shader) {
         return false;
     }
     SkPaint paint;
     paint.setShader(std::move(shader));
 
-    sk_sp<SkSurface> s = SkSurface::MakeRasterN32Premul(128, 128);
+    sk_sp<SkSurface> s = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(4, 4));
     if (!s) {
         return false;
     }
@@ -61,15 +55,16 @@ static bool FuzzSkRuntimeEffect_Once(sk_sp<SkData> bytes, const SkRuntimeEffect:
     return true;
 }
 
-bool FuzzSkRuntimeEffect(sk_sp<SkData> bytes) {
-    // Test once with the inliner disabled...
+bool FuzzSkRuntimeEffect(const uint8_t *data, size_t size) {
+    // Test once with optimization disabled...
+    SkString shaderText{reinterpret_cast<const char*>(data), size};
     SkRuntimeEffect::Options options;
-    options.forceNoInline = true;
-    bool result = FuzzSkRuntimeEffect_Once(bytes, options);
+    options.forceUnoptimized = true;
+    bool result = FuzzSkRuntimeEffect_Once(shaderText, options);
 
-    // ... and then with the inliner enabled.
-    options.forceNoInline = false;
-    result = FuzzSkRuntimeEffect_Once(bytes, options) || result;
+    // ... and then with optimization enabled.
+    options.forceUnoptimized = false;
+    result = FuzzSkRuntimeEffect_Once(shaderText, options) || result;
 
     return result;
 }
@@ -79,8 +74,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (size > 3000) {
         return 0;
     }
-    auto bytes = SkData::MakeWithoutCopy(data, size);
-    FuzzSkRuntimeEffect(bytes);
+    FuzzSkRuntimeEffect(data, size);
     return 0;
 }
 #endif

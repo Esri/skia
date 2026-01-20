@@ -82,20 +82,54 @@ public:
     const std::unique_ptr<Type> fHalf4x3;
     const std::unique_ptr<Type> fHalf4x4;
 
-    const std::unique_ptr<Type> fTexture1D;
-    const std::unique_ptr<Type> fTexture2D;
-    const std::unique_ptr<Type> fTexture3D;
+    const std::unique_ptr<Type> fVec2;
+    const std::unique_ptr<Type> fVec3;
+    const std::unique_ptr<Type> fVec4;
+
+    const std::unique_ptr<Type> fIVec2;
+    const std::unique_ptr<Type> fIVec3;
+    const std::unique_ptr<Type> fIVec4;
+
+    const std::unique_ptr<Type> fUVec2;
+    const std::unique_ptr<Type> fUVec3;
+    const std::unique_ptr<Type> fUVec4;
+
+    const std::unique_ptr<Type> fBVec2;
+    const std::unique_ptr<Type> fBVec3;
+    const std::unique_ptr<Type> fBVec4;
+
+    const std::unique_ptr<Type> fMat2;
+    const std::unique_ptr<Type> fMat3;
+    const std::unique_ptr<Type> fMat4;
+
+    const std::unique_ptr<Type> fMat2x2;
+    const std::unique_ptr<Type> fMat2x3;
+    const std::unique_ptr<Type> fMat2x4;
+    const std::unique_ptr<Type> fMat3x2;
+    const std::unique_ptr<Type> fMat3x3;
+    const std::unique_ptr<Type> fMat3x4;
+    const std::unique_ptr<Type> fMat4x2;
+    const std::unique_ptr<Type> fMat4x3;
+    const std::unique_ptr<Type> fMat4x4;
+
+    // These texture types use `sample` access.
+    const std::unique_ptr<Type> fTexture2D_sample;
     const std::unique_ptr<Type> fTextureExternalOES;
     const std::unique_ptr<Type> fTexture2DRect;
-    const std::unique_ptr<Type> fITexture2D;
 
-    const std::unique_ptr<Type> fSampler1D;
+    // These texture types use `read`/`write` access.
+    const std::unique_ptr<Type> fTexture2D;
+    const std::unique_ptr<Type> fReadOnlyTexture2D;
+    const std::unique_ptr<Type> fWriteOnlyTexture2D;
+
+    const std::unique_ptr<Type> fGenTexture2D;
+    const std::unique_ptr<Type> fReadableTexture2D;
+    const std::unique_ptr<Type> fWritableTexture2D;
+
     const std::unique_ptr<Type> fSampler2D;
-    const std::unique_ptr<Type> fSampler3D;
     const std::unique_ptr<Type> fSamplerExternalOES;
     const std::unique_ptr<Type> fSampler2DRect;
 
-    const std::unique_ptr<Type> fISampler2D;
     const std::unique_ptr<Type> fSampler;
 
     const std::unique_ptr<Type> fSubpassInput;
@@ -130,6 +164,9 @@ public:
     const std::unique_ptr<Type> fColorFilter;
     const std::unique_ptr<Type> fShader;
     const std::unique_ptr<Type> fBlender;
+
+    const std::unique_ptr<Type> fAtomicUInt;
+    const std::unique_ptr<Type> fAtomic_uint;
 };
 
 }  // namespace SkSL

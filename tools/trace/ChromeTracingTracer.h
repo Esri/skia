@@ -9,9 +9,9 @@
 #define ChromeTracingTracer_DEFINED
 
 #include "include/core/SkString.h"
-#include "include/private/SkSpinlock.h"
-#include "include/private/SkTHash.h"
 #include "include/utils/SkEventTracer.h"
+#include "src/base/SkSpinlock.h"
+#include "src/core/SkTHash.h"
 #include "tools/trace/EventTracingPriv.h"
 
 class SkJSONWriter;
@@ -21,7 +21,7 @@ class SkJSONWriter;
  */
 class ChromeTracingTracer : public SkEventTracer {
 public:
-    ChromeTracingTracer(const char* filename);
+    explicit ChromeTracingTracer(const char* filename);
     ~ChromeTracingTracer() override;
 
     SkEventTracer::Handle addTraceEvent(char            phase,
@@ -45,6 +45,9 @@ public:
     const char* getCategoryGroupName(const uint8_t* categoryEnabledFlag) override {
         return fCategories.getCategoryGroupName(categoryEnabledFlag);
     }
+
+    // The Chrome tracer does not yet support splitting up trace output into sections.
+    void newTracingSection(const char* name) override {}
 
 private:
     void flush();
@@ -73,7 +76,7 @@ private:
     TraceEventBlock fCurBlock;
     size_t          fCurBlockUsed;
 
-    SkTArray<TraceEventBlock> fBlocks;
+    skia_private::TArray<TraceEventBlock> fBlocks;
 };
 
 #endif

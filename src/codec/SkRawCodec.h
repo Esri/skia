@@ -9,12 +9,16 @@
 #define SkRawCodec_DEFINED
 
 #include "include/codec/SkCodec.h"
-#include "include/core/SkColorSpace.h"
-#include "include/core/SkImageInfo.h"
+#include "include/codec/SkEncodedImageFormat.h"
+#include "include/core/SkSize.h"
 #include "include/core/SkTypes.h"
+
+#include <cstddef>
+#include <memory>
 
 class SkDngImage;
 class SkStream;
+struct SkImageInfo;
 
 /*
  *
@@ -55,7 +59,7 @@ private:
      * Creates an instance of the decoder
      * Called only by NewFromStream, takes ownership of dngImage.
      */
-    SkRawCodec(SkDngImage* dngImage);
+    explicit SkRawCodec(SkDngImage* dngImage);
 
     std::unique_ptr<SkDngImage> fDngImage;
 

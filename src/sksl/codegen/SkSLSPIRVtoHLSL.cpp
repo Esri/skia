@@ -7,9 +7,7 @@
 
 #include "src/sksl/codegen/SkSLSPIRVtoHLSL.h"
 
-#if defined(SK_ENABLE_SPIRV_CROSS)
-
-#include "third_party/externals/spirv-cross/spirv_hlsl.hpp"
+#include <spirv_hlsl.hpp>
 
 /*
  * This translation unit serves as a bridge between Skia/SkSL and SPIRV-Cross.
@@ -19,9 +17,8 @@
 
 namespace SkSL {
 
-bool SPIRVtoHLSL(const String& spirv, String* hlsl) {
-    spirv_cross::CompilerHLSL hlslCompiler((const uint32_t*)spirv.c_str(),
-                                           spirv.size() / sizeof(uint32_t));
+void SPIRVtoHLSL(SkSpan<const uint32_t> spirv, std::string* hlsl) {
+    spirv_cross::CompilerHLSL hlslCompiler(spirv.data(), spirv.size());
 
     spirv_cross::CompilerGLSL::Options optionsGLSL;
     // Force all uninitialized variables to be 0, otherwise they will fail to compile
@@ -37,13 +34,6 @@ bool SPIRVtoHLSL(const String& spirv, String* hlsl) {
     hlslCompiler.set_common_options(optionsGLSL);
     hlslCompiler.set_hlsl_options(optionsHLSL);
     hlsl->assign(hlslCompiler.compile());
-    return true;
 }
 
-}
-
-#else
-
-namespace SkSL { bool SPIRVtoHLSL(const String&, String*) { return false; } }
-
-#endif
+}  // namespace SkSL

@@ -7,7 +7,21 @@
 
 #include "tools/debugger/JsonWriteBuffer.h"
 
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkString.h"
+#include "src/utils/SkJSONWriter.h"
 #include "tools/debugger/DrawCommand.h"
+
+class SkImage;
+class SkMatrix;
+class SkPaint;
+class SkRegion;
+class SkStream;
+class SkTypeface;
+struct SkIRect;
+struct SkPoint3;
+struct SkRect;
 
 void JsonWriteBuffer::append(const char* type) {
     SkString fullName = SkStringPrintf("%02d_%s", fCount++, type);
@@ -20,7 +34,7 @@ void JsonWriteBuffer::writePad32(const void* data, size_t size) {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
     for (size_t i = 0; i < size; ++i) {
         SkString hexByte = SkStringPrintf("%02x", bytes[i]);
-        fWriter->appendString(hexByte.c_str());
+        fWriter->appendString(hexByte);
     }
     fWriter->endArray();
 }
@@ -31,7 +45,7 @@ void JsonWriteBuffer::writeByteArray(const void* data, size_t size) {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
     for (size_t i = 0; i < size; ++i) {
         SkString hexByte = SkStringPrintf("%02x", bytes[i]);
-        fWriter->appendString(hexByte.c_str());
+        fWriter->appendString(hexByte);
     }
     fWriter->endArray();
 }
@@ -46,11 +60,11 @@ void JsonWriteBuffer::writeScalar(SkScalar value) {
     fWriter->appendFloat(value);
 }
 
-void JsonWriteBuffer::writeScalarArray(const SkScalar* value, uint32_t count) {
+void JsonWriteBuffer::writeScalarArray(SkSpan<const SkScalar> values) {
     this->append("scalarArray");
     fWriter->beginArray();
-    for (uint32_t i = 0; i < count; ++i) {
-        fWriter->appendFloat(value[i]);
+    for (auto value : values) {
+        fWriter->appendFloat(value);
     }
     fWriter->endArray();
 }
@@ -60,11 +74,11 @@ void JsonWriteBuffer::writeInt(int32_t value) {
     fWriter->appendS32(value);
 }
 
-void JsonWriteBuffer::writeIntArray(const int32_t* value, uint32_t count) {
+void JsonWriteBuffer::writeIntArray(SkSpan<const int32_t> values) {
     this->append("intArray");
     fWriter->beginArray();
-    for (uint32_t i = 0; i < count; ++i) {
-        fWriter->appendS32(value[i]);
+    for (auto value : values) {
+        fWriter->appendS32(value);
     }
     fWriter->endArray();
 }
@@ -74,9 +88,9 @@ void JsonWriteBuffer::writeUInt(uint32_t value) {
     fWriter->appendU32(value);
 }
 
-void JsonWriteBuffer::writeString(const char* value) {
+void JsonWriteBuffer::writeString(std::string_view value) {
     this->append("string");
-    fWriter->appendString(value);
+    fWriter->appendString(value.data(), value.size());
 }
 
 void JsonWriteBuffer::writeFlattenable(const SkFlattenable* flattenable) {
@@ -97,11 +111,11 @@ void JsonWriteBuffer::writeColor(SkColor color) {
     DrawCommand::MakeJsonColor(*fWriter, color);
 }
 
-void JsonWriteBuffer::writeColorArray(const SkColor* color, uint32_t count) {
+void JsonWriteBuffer::writeColorArray(SkSpan<const SkColor> colors) {
     this->append("colorArray");
     fWriter->beginArray();
-    for (uint32_t i = 0; i < count; ++i) {
-        DrawCommand::MakeJsonColor(*fWriter, color[i]);
+    for (auto color : colors) {
+        DrawCommand::MakeJsonColor(*fWriter, color);
     }
     fWriter->endArray();
 }
@@ -111,11 +125,11 @@ void JsonWriteBuffer::writeColor4f(const SkColor4f& color) {
     DrawCommand::MakeJsonColor4f(*fWriter, color);
 }
 
-void JsonWriteBuffer::writeColor4fArray(const SkColor4f* color, uint32_t count) {
+void JsonWriteBuffer::writeColor4fArray(SkSpan<const SkColor4f> colors) {
     this->append("colorArray");
     fWriter->beginArray();
-    for (uint32_t i = 0; i < count; ++i) {
-        DrawCommand::MakeJsonColor4f(*fWriter, color[i]);
+    for (auto color : colors) {
+        DrawCommand::MakeJsonColor4f(*fWriter, color);
     }
     fWriter->endArray();
 }
@@ -130,11 +144,11 @@ void JsonWriteBuffer::writePoint3(const SkPoint3& point) {
     DrawCommand::MakeJsonPoint3(*fWriter, point);
 }
 
-void JsonWriteBuffer::writePointArray(const SkPoint* point, uint32_t count) {
+void JsonWriteBuffer::writePointArray(SkSpan<const SkPoint> points) {
     this->append("pointArray");
     fWriter->beginArray();
-    for (uint32_t i = 0; i < count; ++i) {
-        DrawCommand::MakeJsonPoint(*fWriter, point[i]);
+    for (auto point : points) {
+        DrawCommand::MakeJsonPoint(*fWriter, point);
     }
     fWriter->endArray();
 }
@@ -176,6 +190,11 @@ void JsonWriteBuffer::writeRegion(const SkRegion& region) {
 void JsonWriteBuffer::writePath(const SkPath& path) {
     this->append("path");
     DrawCommand::MakeJsonPath(*fWriter, path);
+}
+
+void JsonWriteBuffer::writeSampling(const SkSamplingOptions& sampling) {
+    this->append("sampling");
+    DrawCommand::MakeJsonSampling(*fWriter, sampling);
 }
 
 size_t JsonWriteBuffer::writeStream(SkStream* stream, size_t length) {

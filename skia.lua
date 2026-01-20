@@ -14,6 +14,8 @@ defines {
   "SK_ENCODE_JPEG",
   "SK_ENCODE_PNG",
   "SK_HAS_WUFFS_LIBRARY",
+  "SKCMS_DISABLE_HSW",
+  "SKCMS_DISABLE_SKX",
 }
 
 includedirs {
@@ -28,8 +30,6 @@ includedirs {
 files {
   "modules/skcms/skcms.cc",
   "modules/skcms/src/skcms_TransformBaseline.cc",
-  "modules/skcms/src/skcms_TransformHsw.cc",
-  "modules/skcms/src/skcms_TransformSkx.cc",
   "src/base/SkArenaAlloc.cpp",
   "src/base/SkBezierCurves.cpp",
   "src/base/SkBlockAllocator.cpp",
@@ -621,11 +621,6 @@ if (_PLATFORM_IOS) then
 end
 
 if (_PLATFORM_LINUX) then
-  defines {
-    "SKCMS_DISABLE_HSW",
-    "SKCMS_DISABLE_SKX",
-  }
-
   includedirs {
     _3RDPARTY_DIR .. "/freetype/include",
   }

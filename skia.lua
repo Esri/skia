@@ -577,9 +577,17 @@ if (_PLATFORM_ANDROID) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SKRP_CPU_SCALAR",
+  }
+
   files { opts_sse }
 
   configuration { "*x86*" }
+
+  defines {
+    "SKRP_CPU_SCALAR",
+  }
 
   files { opts_sse }
 end
@@ -599,6 +607,10 @@ if (_PLATFORM_COCOA) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SKRP_CPU_SCALAR",
+  }
+
   files { opts_sse }
 end
 
@@ -617,12 +629,20 @@ if (_PLATFORM_IOS) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SKRP_CPU_SCALAR",
+  }
+
   files { opts_sse }
 end
 
 if (_PLATFORM_LINUX) then
   includedirs {
     _3RDPARTY_DIR .. "/freetype/include",
+  }
+
+  defines {
+    "SKRP_CPU_SCALAR",
   }
 
   files {
@@ -646,6 +666,10 @@ if (_PLATFORM_MACOS) then
 
   configuration { "x64" }
 
+  defines {
+    "SKRP_CPU_SCALAR",
+  }
+
   files { opts_sse }
 end
 
@@ -657,6 +681,10 @@ if (_PLATFORM_WINDOWS) then
   includedirs {
     "include/utils/win",
     "src/utils/win",
+  }
+
+  defines {
+    "SKRP_CPU_SCALAR",
   }
 
   files {

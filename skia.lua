@@ -577,9 +577,17 @@ if (_PLATFORM_ANDROID) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+  }
+
   files { opts_sse }
 
   configuration { "*x86*" }
+
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+  }
 
   files { opts_sse }
 end
@@ -599,6 +607,10 @@ if (_PLATFORM_COCOA) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+  }
+
   files { opts_sse }
 end
 
@@ -617,12 +629,20 @@ if (_PLATFORM_IOS) then
 
   configuration { "*x64*" }
 
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+  }
+
   files { opts_sse }
 end
 
 if (_PLATFORM_LINUX) then
   includedirs {
     _3RDPARTY_DIR .. "/freetype/include",
+  }
+
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
   }
 
   files {
@@ -646,6 +666,10 @@ if (_PLATFORM_MACOS) then
 
   configuration { "x64" }
 
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+  }
+
   files { opts_sse }
 end
 
@@ -657,6 +681,10 @@ if (_PLATFORM_WINDOWS) then
   includedirs {
     "include/utils/win",
     "src/utils/win",
+  }
+
+  defines {
+    "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
   }
 
   files {

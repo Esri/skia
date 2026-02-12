@@ -540,7 +540,7 @@ local common_android = {
 
 -- add common MacOS and iOS
 
-local common_cocoa = {
+local common_apple = {
   common_unix,
   "src/ports/SkFontMgr_mac_ct.cpp",
   "src/ports/SkScalerContext_mac_ct.cpp",
@@ -592,33 +592,13 @@ if (_PLATFORM_ANDROID) then
   files { opts_sse }
 end
 
-if (_PLATFORM_COCOA) then
-  includedirs {
-    "include/utils/mac",
-  }
-
-  files {
-    common_cocoa,
-  }
-
-  configuration { "*arm64*" }
-
-  files { opts_arm64 }
-
-  configuration { "*x64*" }
-
-  defines { defines_sse }
-
-  files { opts_sse }
-end
-
 if (_PLATFORM_IOS) then
   includedirs {
     "include/utils/mac",
   }
 
   files {
-    common_cocoa,
+    common_apple,
   }
 
   configuration { "*arm64*" }
@@ -651,7 +631,7 @@ if (_PLATFORM_MACOS) then
   }
 
   files {
-    common_cocoa,
+    common_apple,
   }
 
   configuration { "ARM64" }

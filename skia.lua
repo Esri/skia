@@ -18,6 +18,10 @@ defines {
   "SKCMS_DISABLE_SKX",
 }
 
+local defines_sse = {
+  "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
+}
+
 includedirs {
   ".",
   "modules/skcms",
@@ -536,7 +540,7 @@ local common_android = {
 
 -- add common MacOS and iOS
 
-local common_cocoa = {
+local common_apple = {
   common_unix,
   "src/ports/SkFontMgr_mac_ct.cpp",
   "src/ports/SkScalerContext_mac_ct.cpp",
@@ -577,27 +581,13 @@ if (_PLATFORM_ANDROID) then
 
   configuration { "*x64*" }
 
+  defines { defines_sse }
+
   files { opts_sse }
 
   configuration { "*x86*" }
 
-  files { opts_sse }
-end
-
-if (_PLATFORM_COCOA) then
-  includedirs {
-    "include/utils/mac",
-  }
-
-  files {
-    common_cocoa,
-  }
-
-  configuration { "*arm64*" }
-
-  files { opts_arm64 }
-
-  configuration { "*x64*" }
+  defines { defines_sse }
 
   files { opts_sse }
 end
@@ -608,7 +598,7 @@ if (_PLATFORM_IOS) then
   }
 
   files {
-    common_cocoa,
+    common_apple,
   }
 
   configuration { "*arm64*" }
@@ -617,6 +607,8 @@ if (_PLATFORM_IOS) then
 
   configuration { "*x64*" }
 
+  defines { defines_sse }
+
   files { opts_sse }
 end
 
@@ -624,6 +616,8 @@ if (_PLATFORM_LINUX) then
   includedirs {
     _3RDPARTY_DIR .. "/freetype/include",
   }
+
+  defines { defines_sse }
 
   files {
     common_linux,
@@ -637,7 +631,7 @@ if (_PLATFORM_MACOS) then
   }
 
   files {
-    common_cocoa,
+    common_apple,
   }
 
   configuration { "ARM64" }
@@ -645,6 +639,8 @@ if (_PLATFORM_MACOS) then
   files { opts_arm64 }
 
   configuration { "x64" }
+
+  defines { defines_sse }
 
   files { opts_sse }
 end
@@ -658,6 +654,8 @@ if (_PLATFORM_WINDOWS) then
     "include/utils/win",
     "src/utils/win",
   }
+
+  defines { defines_sse }
 
   files {
     common_win,

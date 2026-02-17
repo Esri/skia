@@ -16,7 +16,10 @@ defines {
   "SK_HAS_WUFFS_LIBRARY",
   "SKCMS_DISABLE_HSW",
   "SKCMS_DISABLE_SKX",
-  "SKRP_CPU_SCALAR",
+}
+
+local defines_sse = {
+  "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3",
 }
 
 includedirs {
@@ -578,9 +581,13 @@ if (_PLATFORM_ANDROID) then
 
   configuration { "*x64*" }
 
+  defines { defines_sse }
+  
   files { opts_sse }
 
   configuration { "*x86*" }
+
+  defines { defines_sse }
 
   files { opts_sse }
 end
@@ -600,6 +607,8 @@ if (_PLATFORM_IOS) then
 
   configuration { "*x64*" }
 
+  defines { defines_sse }
+
   files { opts_sse }
 end
 
@@ -612,6 +621,10 @@ if (_PLATFORM_LINUX) then
     common_linux,
     opts_sse,
   }
+
+  configuration { "*x64*" }
+
+  defines { defines_sse }
 end
 
 if (_PLATFORM_MACOS) then
@@ -628,6 +641,8 @@ if (_PLATFORM_MACOS) then
   files { opts_arm64 }
 
   configuration { "x64" }
+
+  defines { defines_sse }
 
   files { opts_sse }
 end
@@ -646,4 +661,8 @@ if (_PLATFORM_WINDOWS) then
     common_win,
     opts_sse,
   }
+
+  configuration { "*x64*" }
+
+  defines { defines_sse }
 end
